@@ -88,21 +88,65 @@ NoSQL，指的是非关系型的数据库。NoSQL 有时也称作 Not Only SQL �
 MongoDB 的集群部署方案中有三类角色:实际数据存储结点、配置文件存储结点和路由接入结点。
 连接的客户端直接与路由结点相连，从配置结点上查询数据，根据查询结果到实际的存储结点上查询和
 存储数据。MongoDB 的部署方案有单机部署、复本集(主备)部署、分片部署、复本集与分片混合部署。
-混合的部署方式如图:
 
-![image-20180910162240092](/var/folders/jx/z_z8djrx33bgrj5j_9x06drr0000gp/T/abnerworks.Typora/image-20180910162240092.png)
+**混合的部署方式如图：**
 
-图片为：mongo1.jpg
+![image-20180910162240092](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo1.jpg?raw=true)
 
-混合部署方式下向 MongoDB 写数据的流程如图:
+**混合部署方式下向 MongoDB 写数据的流程如图：**
 
+![image-20180910162240093](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo2.jpg?raw=true)
 
+**混合部署方式下读 MongoDB 里的数据流程如图：**
 
+![image-20180910162240093](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo3.jpg?raw=true)
 
+对于复本集，又有主和从两种角色，写数据和读数据也是不同，写数据的过程是只写到主结点中，由主
+结点以异步的方式同步到从结点中:
 
-### 3.MongoDB 应用场景？
+![image-20180910162240093](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo4.jpg?raw=true)
 
-#### 3.1 适用范围：
+而读数据则只要从任一结点中读取，具体到哪个结点读取是可以指定的:
+
+![image-20180910162240093](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo5.jpg?raw=true)
+
+对于 MongoDB 的分片，假设我们以某一索引键(ID)为片键，ID 的区间[0,50]，划分成 5 个 chunk，
+分别存储到 3 个片服务器中，如图所示:
+
+![image-20180910162240093](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo6.jpg?raw=true)
+
+假如数据量很大，需要增加片服务器时可以只要移动 chunk 来均分数据即可。 
+
+配置结点: 
+
+	存储配置文件的服务器其实存储的是片键与 chunk 以及 chunk 与 server 的映射关系，用上面的数据表
+示的配置结点存储的数据模型如下表:
+
+**Map1：**
+
+| Key range | chunk  |
+| :-------- | ------ |
+| [0,10)    | chunk1 |
+| [10,20)   | Chunk2 |
+| [20,30)   | Chunk3 |
+| [30,40)   | Chunk4 |
+| [40,50)   | Chunk5 |
+
+**Map2：**
+
+| chunk  | shard  |
+| ------ | ------ |
+| Chunk1 | Shard1 |
+| Chunk2 | Shard2 |
+| chunk3 | shard3 |
+| Chunk4 | shard4 |
+| Chunk5 | Shard5 |
+
+**路由结点：路由角色的结点在分片的情况下起到负载均衡的作用。**
+
+### 8.MongoDB 应用场景？
+
+#### 8.1 适用范围：
 
 1. 网站实时数据：例如：日志、Timeline、用户行为（代替方案：用日志）
 2. 数据缓存：缓存的数据，他一定是临时的（关系型数据有一份已经持久化）
@@ -110,10 +154,11 @@ MongoDB 的集群部署方案中有三类角色:实际数据存储结点、配�
 4. 高伸缩性场景：机器可以任意的增减
 5. 对象或JSON数据存储：完全可以选择用redis
 
-#### 3.2 不适用范围
+#### 8.2 不适用范围
 
 1. 高度事务性系统：例如：金融系统的核心数据、高机密的用户数据（只能选择传统关系型数据库）
 2. 传统的商业只能引用：结构化查询要求非常高，经常做关联查询统计（如果都是单表查询，用Java程序来实现关联）Map，List （id_az_a）
+3. 需要复杂 SQL 查询的问题。 
 
 MongoDB 4.0 支持事务操作（分布式事务的一种解决方案）
 
