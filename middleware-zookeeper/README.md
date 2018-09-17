@@ -289,31 +289,171 @@ TM 负责调度 AP 的行为，并最终决定这些 AP 是否要把事务真正
 1. 事务询问
    1. 协调者向所有的参与者发送事务内容，询问是否可以执行事务提交操作，并开始等待各参与者的响应。
 2. 执行事务
-   1. 各个参与者节点执行事务操作，并将 Undo 和 Redo 信息记录到事务日志中，
-3. 22
-4. 
+   1. 各个参与者节点执行事务操作，并将 Undo 和 Redo 信息记录到事务日志中，尽量把提交过程中所有消耗时间的操作和准备都提前完成确保后面 100% 成功提交事务。
+3. 各个参与者向协调者反馈事务询问的响应
+   1. 如果各个参与者成功执行了事务操作，那么就反馈给协调者 yes 的响应，表示事务可以执行；
+   2. 如果参与者没有成功执行事务，就反馈给协调者 no 的响应，表示事务不可以执行；
+   3. 上面这个阶段有点类似协调者组织各个参与者对一次事务操作的投票表态过程，因此 2PC 协议的第一个阶段为“投票阶段”，即各参与者投票表明是否需要继续执行接下去的事务提交操作。
 
+- 阶段二
 
+1. 在这个阶段，协调者会根据各参与者反馈情况来决定最终是否可以进行事务提交操作，正常情况下包含两种可能：执行事务、中断事务。
 
+#### 3 zookeeper的集群
 
+在 zookeeper 中，客户端会随机连接到 zookeeper 集群中的一个节点，如果是读请求，就直接从当前节点中读取数据，如果是写请求，那么请求会被转发给leader提交事务，然后 leader 会广播事务，只要有超过半数节点写入成功，那么写请求就会被提交（类 2PC 事务）。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-zookeeper/img/zookeeper5.jpg?raw=true)
 
+所有事务请求必须由一个全局唯一的服务器来协调处理，这个服务器就是 Leader 服务器，其他的服务器就是follower。leader 服务器把客户端的事务请求转化成一个事务 Proposal（提议），并把这个 Proposal 分发给集群中的所有 Follower 服务器。之后 Leader 服务器需要等待所有Follower 服务器的反馈，一旦超过半数的 Follower 服务器进行了正确的反馈，那么 Leader 就会再次向所有的 Follower 服务器发送 Commit 消息，要求各个 follower 节点对前面的一个 Proposal 进行提交;
 
+- 集群角色
 
+1. Leader 角色
+   1. Leader 服务器是整个 zookeeper 集群的核心，主要的工作任务有两项
+      1. 事务请求的唯一调度和处理者，保证集群事务处理的顺序性
+      2. 集群内部各服务的调度者
+2. Follower 角色
+   1. 处理客户端非事务请求，转发事务请求给 leader 服务器
+   2. 参与事务请求 Proposal 的投票（需要半数以上服务器通过才能通知 leader commit 数据; Leader 发起的提案，要求 Follower 投票）
+   3. 参与 leader 选举的投票
+3. Observer 角色
+   1. 观察 zookeeper 集群中最新状态的变化并将这些状态同步到 observer 服务器上。
+   2. 增加 observer，不影响急群众事务处理能力，同时还能提高集群的非事务处理能力。
 
+- 集群的组成
 
+1. zookeeper 一般是由 2n+1 台服务器组成。
+2. 因为一个节点要成为集群中的 leader，需要有超过及群众过半数的节点支持，这个涉及到 leader 选举算法，同时也涉及到事务请求的提交投票。
 
+#### 4 ZAB 协议
 
+ZAB（Zookeeper Atomic Broadcast） 协议是为分布式协调服务 ZooKeeper 专门设计的一种支持**崩溃恢复的原子广播协议**。
 
+在 ZooKeeper 中，主要依赖 ZAB 协议来实现分布式数据一致性，基于该协议，ZooKeeper 实现了一种主备模式的系统架构来保持集群中各个副本之间的数据一致性。
 
+- ZAB 协议包含两种基本模式
+  - 崩溃恢复
+  - 原子广播
 
+当整个集群在启动时，或者当 leader 节点出现网络中断、崩溃等情况时，ZAB 协议就会进入恢复模式并选举产生新的 Leader，当 leader 服务器选举出来后，并且集群中有过半的机器和该 leader 节点完成数据同步后（同步指的是数据同步，用来保证集群中过半的机器能够和 leader 服务器的数据状态保持一致），ZAB 协议就会退出恢复模式。当集群中已经有过半的 Follower 节点完成了和 Leader 状态同步以后，那么整个集群就进入了消息广播模式。这个时候，在 Leader 节点正常工作时，启动一台新的服务器加入到集群，那这个服务器会直接进入数据恢复模式，和leader 节点进行数据同步。同步完成后即可正常对外提供非事务请求的处理。
 
+- 原子广播
 
+1. leader 接收到消息请求后，将消息赋予一个全局唯一的 64 位自增 id，叫：zxid，通过 zxid 的大小比较既可以实现因果有序这个特征。
+2. leader 为每个 follower 准备了一个 FIFO 队列（通过 TCP 协议来实现，以实现了全局有序这一个特点）将带有 zxid 的消息作为一个提案（proposal）分发给所有的 follower 
+3. 当 follower 接收到 proposal，先把 proposal 写到磁盘，写入成功以后再向 leader 回复一个 ack
+4. 当 leader 接收到合法数量（超过半数节点）的 ACK 后，leader 就会向这些 follower 发送 commit 命令，同时会在本地执行该消息
+5. 当 follower 收到消息的 commit 命令以后，会提交该消息
 
+**leader 的投票过程，不需要 Observer 的 ack，也就是 Observer 不需要参与投票过程，但是 Observer 必须要同步 Leader 的数据从而在处理请求的时候保证数据的一致性。**
 
+- 崩溃恢复
 
+当Leader节点崩溃或由于网络问题导致 Leader 服务器失去了过半的Follower 节点的联系。就会进入崩溃回复模式。在 ZAB 协议中，为了保证程序的正确运行，整个恢复过程结束后需要选举出一个新的Leader。
 
+为了使 leader 挂了后系统能正常工作，需要解决以下两个问题：
 
+1. 已经被处理的消息不能丢失
+   1. 当 leader 收到合法数量 follower 的 ACKs 后，就向各个 follower 广播 COMMIT 命令，同时也会在本地执行 COMMIT 并向连接的客户端返回「成功」。但是如果在各个 follower 在收到 COMMIT 命令前 leader就挂了，导致剩下的服务器并没有执行都这条消息。
+   2. leader 对事务消息发起 commit 操作，但是该消息在follower1 上执行了，但是 follower2 还没有收到 commit，就已经挂了，而实际上客户端已经收到该事务消息处理成功的回执了。所以在 zab 协议下需要保证所有机器都要执行这个事务消息。
+2. 被丢弃的消息不能再次出现
+   1. 当 leader 接收到消息请求生成 proposal 后就挂了，其他 follower 并没有收到此 proposal，因此经过恢复模式重新选了 leader 后，这条消息是被跳过的。此时，之前挂了的 leader 重新启动并注册成了 follower，他保留了被跳过消息的 proposal 状态，与整个系统的状态是不一致的，需要将其删除。
+
+ZAB 协议需要满足上面两种情况，就必须要设计一个leader 选举算法：能够确保已经被 leader 提交的事务Proposal 能够提交、同时丢弃已经被跳过的事务Proposal。
+
+如果 leader 选举算法能够保证新选举出来的 Leader 服务器拥有集群中所有机器最高编号（ZXID 最大）的事务 Proposal，那么就可以保证这个新选举出来的 Leader 一定具有已经提交的提案。因为所有提案被 COMMIT 之前必须有超过半数的 follower ACK，即必须有超过半数节点的服务器的事务日志上有该提案的 proposal，因此，只要有合法数量的节点正常工作，就必然有一个节点保存了所有被 COMMIT 消息的 proposal 状态。
+
+另外一个，zxid 是 64 位，高 32 位是 epoch 编号，每经过一次 Leader 选举产生一个新的 leader，新的 leader 会将 epoch 号+1，低 32 位是消息计数器，每接收到一条消息这个值+1，新 leader 选举后这个值重置为 0.这样设计的好处在于老的leader挂了以后重启，它不会被选举为leader，因此此时它的 zxid 肯定小于当前新的 leader。当老的leader 作为 follower 接入新的 leader 后，新的 leader 会让它将所有的拥有旧的 epoch 号的未被 COMMIT 的proposal 清除。
+
+- 关于 ZXID
+
+zxid，也就是事务 id
+
+为了保证事务的顺序一致性，zookeeper 采用了递增的事务 id 号（zxid）来标识事务。所有的提议（proposal）都在被提出的时候加上了 zxid。实现中 zxid 是一个 64 位的数字，它高 32 位是 epoch（ZAB 协议通过 epoch 编号来区分 Leader 周期变化的策略）用来标识 leader 关系是否改变，每次一个 leader 被选出来，它都会有一个新的epoch=（原来的 epoch+1），标识当前属于那个 leader 的统治时期。低 32 位用于递增计数。
+
+epoch：可以理解为当前集群所处的年代或者周期，每个leader 就像皇帝，都有自己的年号，所以每次改朝换代，leader 变更之后，都会在前一个年代的基础上加 1。这样就算旧的 leader 崩溃恢复之后，也没有人听他的了，因为 follower 只听从当前年代的 leader 的命令。
+
+**epoch 的变化大家可以做一个简单的实验：**
+
+1. 启动一个 zookeeper 集群。
+2. 在/tmp/zookeeper/VERSION-2 路径下会看到一个currentEpoch 文件。文件中显示的是当前的 epoch
+3. 把 leader 节点停机，这个时候在看 currentEpoch 会有变化。 随着每次选举新的 leader，epoch 都会发生变化。
+
+#### 5 Leader 选举
+
+- leader 选举会分为两个过程
+  - 启动的时候的 leader 选举
+  - leader 崩溃的时候的选举
+
+- 选举方式
+  - leaderElection/AuthFastLeaderElection/**FastLeaderElection**
+    - QuorumPeer、startLeaderElection
+    - 源码地址：https://github.com/apache/zookeeper.git
+    - 需要的条件： jdk 1.7以上 、ant 、idea
+  - **FastLeaderElection**
+    - serverid：在配置server集群的时候，给定服务器的标识id(myid)
+    - zxid：服务器在运行时产生的数据ID，zxid的值越大，表示数据越新
+    - Epoch：选举的轮数
+    - server的状态：Looking、Following、Observering、Leading
+
+##### 5.1 启动的时候的 leader 选举
+
+每个节点启动的时候状态都是 LOOKING，处于观望状态，接下来就开始进行选主流程。进行 Leader 选举，至少需要两台机器（具体原因前面已经讲过了），我们选取 3 台机器组成的服务器集群为例。在集群初始化阶段，当有一台服务器 Server1 启动时，它本身是无法进行和完成 Leader 选举，当第二台服务器 Server2 启动时，这个时候两台机器可以相互通信，每台机器都试图找到 Leader，于是进入 Leader 选举过程。选举过程如下：
+
+1. 每个Server发出一个投票。由于是初始情况，server1和server2都会将自己作为Leader服务器进行投票，每次投票会包含所推举的服务器myid和ZXID、epoch，使用（myid，ZXID，epoch）来表示，此时Server1的投票为（1，0），Server2的投票为（2，0），然后各自将这个投票发送给集群中其他机器。
+
+2. 接收来自各个服务器的投票。集群的每个服务器收到投票后，首先判断该投票的有效性，如检查是否是本轮投票（epoch）、是否来自LOOKING状态的服务器。
+
+3. 处理投票。针对每个投票，服务器都讲别人的投票和自己的投票进行PK，PK规则如下：
+
+4. 1. 有限检查ZXID。ZXID比较大的服务器优先作为Leader
+   2. 如果ZXID相同，比较myid，myid较大的服务器作为Leader
+
+对于Server1而言，他的投票是（1，0），接收Server2的投票为（2，0），首先比较首先会比较两者的 ZXID，均为 0，再比较 myid，此时 Server2 的 myid 最大，于是更新自己的投票为(2, 0)，然后重新投票，对于Server2而言，它不需要更新自己的投票，只是再次向集群中所有机器发出上一次投票信息即可。
+
+4. 统计投票。每次投票后，服务器都会统计投票信息，判断是否已经有过半机器接受到相同的投票信息，对于 Server1、Server2 而言，都统计出集群中已经有两台机器接受了(2, 0)的投票信息，此时便认为已经选出了 Leader。
+
+5. 改变服务器状态。一旦确定了 Leader，每个服务器就会更新自己的状态，如果是 Follower，那么就变更为FOLLOWING，如果是 Leader，就变更为 LEADING。
+
+##### 5.2 运行过程中的 leader 选举
+
+当集群中的 leader 服务器出现宕机或者不可用的情况时，那么整个集群将无法对外提供服务，而是进入新一轮的Leader 选举，服务器运行期间的 Leader 选举和启动时期的 Leader 选举基本过程是一致的。
+    1. 变更状态
+      a. Leader 挂后，余下的非 Observer 服务器都会将自己的服务器状态变更为 LOOKING，然后开始进入 Leader 选举过程。
+    2. 发起投票
+      a. 每个 Server 会发出一个投票。在运行期间，每个服务器上的 ZXID 可能不同，此时假定 Server1 的 ZXID 为123，Server3的ZXID为122；在第一轮投票中，Server1和 Server3 都会投自己，产生投票(1, 123)，(3, 122)，然后各自将投票发送给集群中所有机器。接收来自各个服务器的投票。与启动时过程相同。
+    3. 处理投票
+      a. 与启动时过程相同，此时，Server1 将会成为 Leader。
+    4. 统计投票
+      a. 与启动时过程相同。
+    5. 改变服务器的状态。与启动时过程相同。
+
+##### 5.3 综合来讲
+
+1. 所有在集群中的server都会推荐自己为leader，然后把（myid、zxid、epoch）作为广播信息，广播给集群中的其他server，然后等待其他服务器返回。
+
+2. 每个服务器都会接收来自集群中的其他服务器的投票。集群中的每个服务器在接受到投票后，开始判断投票的有效性：
+
+3. 1. 判断逻辑时钟(Epoch) ，如果Epoch大于自己当前的Epoch，说明自己保存的Epoch是过期。更新Epoch，同时clear其他服务器发送过来的选举数据。判断是否需要更新当前自己的选举情况。
+
+   2. 1. 首先判断看数据的id，数据id大的胜出
+      2. 其次判断leaderId，leaderId大的胜出
+
+   3. 如果Epoch小于目前的Epoch，说明对方的epoch过期了，也就意味着对方服务器的选举轮数是过期的。这个时候，只需要讲自己的信息发送给对方。
+
+   4. 两边的逻辑时钟相同,此时也只是调用totalOrderPredicate函数判断是否需要更新本机的数据,如果更新了再将自己最新的选举结果广播出去就是了。
+
+4. 然后再处理两种情况
+
+5. 1. 服务器判断是不是已经收集到了所有服务器的选举状态,如果是，那么这台服务器选举的leader就定下来了，然后根据选举结果设置自己的角色(FOLLOWING还是LEADER),然后退出选举过程就是了。
+   2. 即使没有收集到所有服务器的选举状态,也可以根据该节点上选择的最新的leader是不是得到了超过半数以上服务器的支持,如果是,那么当前线程将被阻塞等待一段时间(这个时间在finalizeWait定义)看看是不是还会收到当前leader的数据更优的leader,如果经过一段时间还没有这个新的leader提出来，那么这台服务器最终的leader就确定了,否则进行下一次选举。
+
+##### 5.4 leader 选举源码分析（需要过后整理下）
+
+TUDO
+
+### 七 zookeeper 的实践及原理
 
 
 
