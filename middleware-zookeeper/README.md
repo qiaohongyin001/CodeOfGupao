@@ -85,19 +85,177 @@ master选举（kafka、hadoop、hbase）
 
 #### 2 集群环境
 
+1. zookeeper 集群，包含三种角色：leader、follower、observer
+2. observer：是一个特殊的 zookeeper 节点，可以帮助解决 zookeeper 的扩展性（如果大量客户端访问我们 zookeeper 集群，需要增加zookeeper集群机器数量，从而增加 zookeeper 集群的性能，导致 zookeeper 写性能下降，zookeeper 的数据变更需要半数以上服务器投票通过，造成网络消耗，增加投票成本）
+   1. Observer 不参与投票，只参与投票结果
+   2. 不属于 zookeeper 的关键部位
+   3. 如何配置observer
+      1. 在 zoo.cfg 里面增加
+      2. peerType=observer
+      3. server.1=192.168.11.129:2181:3181:observer
+      4. - 1. peerType=observer
 
+      5. - 1. peerType=observer
 
+      6. - 1. peerType=observer
 
+      7. - 1. peerType=observer
 
+      8. - 1. peerType=observer
 
+      9. - 1. peerType=observer
 
+      10. - 1. peerType=observer
 
+![zookeeper1](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-zookeeper/img/zookeeper1.jpg?raw=true)
 
+#### 3 集群的搭建
 
+1. 修改配置文件zoo.cfg
 
+   1. server.id=host:post:port
+      1. id的取值范围：1-255；用id来标识该机器在集群中的机器序号
+   2. server.1=192.168.11.129:2888:3181
+   3. server.2=192.168.11.131:2888:3181
+   4. server.3=192.168.11.135:2888:3181
+   5. 2888表示follower节点与leader节点交换信息的端口号
+   6. 3181表示如果leader节点挂掉了，需要一个端口来重新选举
 
+2. zoo.cfg中有一个dataDir=/temp/zookeeper
 
+   1. $dataDir/myid添加一个myid文件。
+   2. 修改dataDir=/temp/zookeeper
+   3. 在/temp/zookeeper/目录中创建myid文件
+   4. 在每一个服务器的dataDir目录下创建一个myid的文件，文件就一行数据，数据内容是每台机器对应的serverID数据
 
+3. 如果需要增加observer节点
+
+   1. 在zoo.cfg中增加：peerType = observer
+
+   2. ~~~zoo.cfg
+      server.1=192.168.11.129:2888:3181
+      server.2=192.168.11.131:2888:3181
+      server.3=192.168.11.135:2888:3181:observer
+      ~~~
+
+4. 启动服务
+
+### 四 zoo.cfg 配置文件分析
+
+- tickTime=2000
+  - zookeeper中最小的时间单位长度（ms）
+
+- initLimit=10
+  - follower节点启动后与leader节点完成数据同步的时间
+
+- syncLimit=5
+  - leader节点和follower节点进行心跳检测的最大延时时间
+
+- dataDir=/tmp/zookeeper
+  - 表示zookeeper服务器存储快照文件的目录
+
+- dataLogDir
+  - 表示配置 zookeeper 事务日志的存储路径，默认指定在 dataDir 目录下
+
+- clientPort
+  - 表示客户端和服务端建立连接的端口号：2181
+
+### 五 zookeeper中的一些概念
+
+zookeeper的数据模型和文件系统类似，每一个节点为：znode。是zookeeper中的最小数据单元。每一个znode上都可以保存数据和挂载子节点。从而构成一个层次化的属性结构。
+
+#### 1 节点特性
+
+1. 持久化节点
+   1. 节点创建后会一直存在zookeeper服务器上，直到主动删除
+2. 持久化有序节点
+   1. 每一个节点都会为它的一级子节点维护一个顺序
+3. 临时节点
+   1. 临时节点的生命周期和客户端的会话保持一致。当客户端会话失效，该节点自动清理，临时节点不能挂子节点
+4. 临时有序节点
+   1. 在临时节点上多了一个顺序性特性
+
+#### 2 会话状态
+
+![zookeeper1](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-zookeeper/img/zookeeper2.jpg?raw=true)
+
+1. Client初始化连接，状态转为CONNECTING(①)
+2. Client与Server成功建立连接，状态转为CONNECTED(②)
+3. Client丢失了与Server的连接或者没有接受到Server的响应，状态转为CONNECTING(③)
+4. Client连上另外的Server或连接上了之前的Server，状态转为CONNECTED(②)
+5. 若会话过期(是Server负责声明会话过期，而不是Client )，状态转为CLOSED(⑤)，状态转为CLOSED
+6. Client也可以主动关闭会话(④)，状态转为CLOSED
+
+#### 3 Watcher
+
+zookeeper提供了分布式数据发布/订阅，zookeeper允许客户端向服务器端注册一个watcher监听。当服务器端的节点触发指定事件的时候会出发watcher。服务端会向客户端发送一个事件通知。
+
+watcher的通知时一次性，一旦出发一次通知后，该watcher就失效
+
+#### 4 ACL
+
+zookeeper 提供控制节点访问权限的功能，用于有效的保证 zookeeper 中数据的安全性。避免误操作而导致系统出现重大事故。
+
+CREATE /READ/WRITE/DELETE/ADMIN
+
+#### 5 zookeeper 的命令操作
+
+- create [-s][-e] path data acl
+
+1. -s 表示节点是否有序，默认为无序结点
+2. -e 表示是否为临时节点，默认为持久化节点
+
+~~~java
+创建无序持久化节点：create /test 123
+创建有序持久化节点：create -s /test/test1 123
+创建无序临时接点：create -e /test/test2 123
+创建有序临时接点：create -s -e /test/test3 123
+~~~
+
+- get path [watch]
+
+1. 获得指定 path 的信息
+
+- set path data [version]
+
+1. 修改节点 path 对应的值
+2. version：乐观锁的概念
+3. 数据库中有一个 version 字段去控制数据行的版本号
+
+- delete path [version]
+
+1. 删除节点。删除父节点时，必须要把所有子节点删除。
+
+#### 6 stat 信息
+
+~~~java
+cversion = 0 子节点的版本号
+aclVersion = 0 标识 acl 的版本号，修改节点权限
+dataVersion = 1 当前数据的版本号
+
+czxid 节点创建时的事物ID
+mzxid 节点最后一次被更新的事物ID
+pzxid 当前节点下的子节点最后一次被修改时的事务ID
+
+ctime = Sat Aug 05 20:48:26 CST 2017
+mtime = Sat Aug 05 20:48:50 CST 2017
+
+ephemeralOwner = 0x0   创建临时节点的时候，会有一个sessionId 。 该值存储的就是这个sessionid
+dataLength = 3    数据值长度
+numChildren = 0  子节点数
+~~~
+
+#### 7 日志信息
+
+DataTree：底层的数据结构是基于ConcurrentHashMap的存储
+
+- 事务日志
+  -  zoo.cfg文件中，datadir
+- 快照日志
+  - 数据备份
+  - 基于datadir的路径
+- 运行时日志
+  - bin/zookeepr.out
 
 
 
