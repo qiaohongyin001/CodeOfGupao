@@ -41,17 +41,69 @@ zookeeper是一个开源的分布式协调服务，是由雅虎创建的，基�
 
 #### 2 能做什么
 
-数据的发布/订阅（配置中心：disconf）
+##### 2.1 数据的发布/订阅（配置中心：disconf）
 
-负载均衡（dubbo利用了zookeeper机制实现了负载均衡）
+实现配置信息的集中式管理和数据的动态更新
 
-命名服务
+实现配置中心有两种模式：push、pull
 
-master选举（kafka、hadoop、hbase）
+ps：有些公司用长轮询做法
 
-分布式队列
+zookeeper采用的是推拉结合的方式。客户端向服务器端注册自己需要关注的节点。一旦节点数据发生变化，那么服务器端就会向客户端发送watcher事件通知。客户端收到通知后，主动到服务器端获取更新后的数据。
 
-分布式锁
+特征：
+
+1. 数据量比较小
+2. 数据内容在运行时会发生动态变更
+3. 集群中的各个机器共享配置
+
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-zookeeper/img/zookeeper6.jpg?raw=true)
+
+##### 2.2 负载均衡（dubbo利用了zookeeper机制实现了负载均衡）
+
+请求/数据分摊多个计算机单元上
+
+##### 2.3 分布式锁
+
+通常实现分布式锁有几种方式：
+
+1. redis.setNX 存在则会返回0
+2. 数据库方式去实现
+   1. 创建一个表，通过索引唯一的方式
+   2. create table(id,methodname~~~)methodname增加唯一索引
+   3. insert一条数据XXX	delete语句删除这条记录
+   4. mysql for update
+
+3. zookeeper实现
+
+   排他锁（写锁）
+
+##### 2.4 命名服务
+
+节点增加映射关系
+
+##### 2.5 master选举（kafka、hadoop、hbase）
+
+7*24小时可用， 99.999%可用
+
+master-slave模式
+
+使用zookeeper解决：多客户端争抢一个节点
+
+##### 2.6 分布式队列
+
+activeMQ、kafka、….
+
+先进先出队列：
+
+1. 通过getChildren获取指定根节点下的所有子节点，子节点就是任务
+2. 确定自己节点在子节点中的顺序
+3. 如果自己不是最小的子节点，那么监控比自己小的上一个子节点，否则处于等待
+4. 接收watcher通知，重复流程
+
+Barrier模式：就是加了一个触发条件
+
+在节点中增加子节点，增加到一定数量后，再执行后续操作。否则处于等待
 
 #### 3 特性
 
@@ -198,6 +250,14 @@ zookeeper 提供控制节点访问权限的功能，用于有效的保证 zookee
 
 CREATE /READ/WRITE/DELETE/ADMIN
 
+**Acl权限的操作**
+
+~~~txt
+保证存储在zookeeper上的数据安全性问题
+schema(ip/Digest/world/super)
+授权对象（192.168.1.1/11 , root:root / world:anyone/ super）
+~~~
+
 #### 5 zookeeper 的命令操作
 
 - create [-s][-e] path data acl
@@ -250,12 +310,22 @@ numChildren = 0  子节点数
 DataTree：底层的数据结构是基于ConcurrentHashMap的存储
 
 - 事务日志
-  -  zoo.cfg文件中，datadir
+  -  zoo.cfg文件中，DataLogDir
+  - log.zxid
 - 快照日志
   - 数据备份
   - 基于datadir的路径
+  - snapshot.30000232e
 - 运行时日志
   - bin/zookeepr.out
+
+查询事务日志命令：
+
+~~~java
+java -cp :/data/zookeeper-3.4.12/lib/slf4j-api-1.7.25.jar:/data/zookeeper-3.4.12/zookeeper-3.4.12.jar org.apache.zookeeper.server.LogFormatter log.30000232f 
+~~~
+
+
 
 ### 六 zookeeper的原理
 
@@ -347,6 +417,40 @@ ZAB（Zookeeper Atomic Broadcast） 协议是为分布式协调服务 ZooKeeper 
 5. 当 follower 收到消息的 commit 命令以后，会提交该消息
 
 **leader 的投票过程，不需要 Observer 的 ack，也就是 Observer 不需要参与投票过程，但是 Observer 必须要同步 Leader 的数据从而在处理请求的时候保证数据的一致性。**
+
+每个角色详细工作：
+
+**Leader与Follower同步数据（原子广播）**
+
+1. 设置新的逻辑时钟值。每次leader选举后都会根据数据id值，生成新的逻辑时钟值。
+2. leader构建NEWLEADER封包,该封包的数据是当前最大数据的id
+3. 广播给所有的follower,也就是告知follower leader保存的数据id是多少,大家看看是不是需要同步。
+4. leader根据follower数量给每个follower创建一个线程LearnerHandler,专门负责接收它们的同步数据请求，leader主线程开始阻塞在这里,等待其他follower的回应(也就是LearnerHandler线程的处理结果)
+5. 只有在超过半数的follower已经同步数据完毕,这个过程才能结束,leader才能正式成为leader.
+
+**leader所做的工作**
+
+leader接收到的来自某个follower封包一定是FOLLOWERINFO,该封包告知了该服务器保存的数据id.之后根据这个数据id与本机保存的数据进行比较:
+
+1. 如果数据完全一致,则发送DIFF封包告知follower当前数据就是最新的了.
+
+2. 判断这一阶段之内有没有已经被提交的提议值,如果有,那么:
+
+3. 1. 如果有部分数据没有同步,那么会发送DIFF封包将有差异的数据同步过去.同时将follower没有的数据逐个发送COMMIT封包给follower要求记录下来.
+   2. 如果follower数据id更大,那么会发送TRUNC封包告知截除多余数据.（一台leader数据没同步就宕掉了，选举之后恢复了，数据比现在leader更新）
+
+4. 如果这一阶段内没有提交的提议值,直接发送SNAP封包将快照同步发送给follower.
+
+5. 消息完毕之后,发送UPTODATE封包告知follower当前数据就是最新的了,再次发送NEWLEADER封包宣称自己是leader,等待follower的响应.
+
+**follower做的工作**
+
+1. 会尝试与leader建立连接,这里有一个机制,如果一定时间内没有连接上,就报错退出,重新回到选举状态.
+2. 其次在发送FOLLOWERINFO封包,该封包中带上自己的最大数据id,也就是会告知leader本机保存的最大数据id.
+3. 根据前面对LeaderHandler的分析,leader会根据不同的情况发送DIFF,UPTODATE,TRUNC,SNAP,依次进行处理就是了,此时follower跟leader的数据也就同步上了.
+4. 由于leader端发送的最后一个封包是UPTODATE,因此在接收到这个封包之后follower结束同步数据过程,发送ACK封包回复leader.
+
+以上过程中,任何情况出现的错误,服务器将自动将选举状态切换到LOOKING状态,重新开始进行选举.
 
 - 崩溃恢复
 
@@ -453,7 +557,69 @@ epoch：可以理解为当前集群所处的年代或者周期，每个leader �
 
 TUDO
 
-### 七 zookeeper 的实践及原理
+### 七 zookeeper 的实践
+
+~~~java
+详细信息看项目中的代码
+
+curator官网：http://curator.apache.org/
+
+实现带注册中心的RPC框架
+https://github.com/wolfJava/rmi
+~~~
+
+### 八 Watcher 机制与原理
+
+#### 1 EventType
+
+~~~java
+None(-1) 客户端与服务器端成功建立会话
+NodeCreated(1)  节点创建
+NodeDeleted(2)  节点删除
+NodeDataChanged(3) 数据变更：数据内容
+NodeChildrenChanged(4) 子节点发生变更： 子节点删除、新增的时候，才会触发
+~~~
+
+#### 2 watcher的特性
+
+当数据发生变化的时候，zookeeper会产生一个watcher事件，并且会发送到客户端。但是客户端只会收到一次通知。如果后续这个节点再次发生变化，那么之前设置watcher的客户端不会再次收到信息。（watcher是一次性的操作）。可以通过循环监听去达到永久监听效果。
+
+zkClient （ 永久监听的封装）
+
+curator （ 永久监听的封装）
+
+java api的话， zk.exists , zk.getData  创建一个watcher监听
+
+zookeeper序列化使用的是Jute
+
+#### 3 如何注册事件机制
+
+通过三个操作来绑定事件：getData、Exists、getChildren
+
+如何触发事件：凡是事务类型的操作，都会触发监听时间。create/delete/setData
+
+详细看代码
+
+#### 4 什么样的操作会产生什么类型的事件
+
+|                            | zk-persist-mic（监听事件）exists、getData、getChildren | zk-persist-mic/child（监听事件） |
+| -------------------------- | ------------------------------------------------------ | -------------------------------- |
+| create("/point")           | NodeCreated(exists、getData)                           | 无                               |
+| delete("/point")           | NodeDeleted(exists、getData)                           | 无                               |
+| setData("/point")          | NodeDataChanged(exists、getData)                       | 无                               |
+| create("/point/children")  | NodeChildrenChanged(getChildren)                       | NodeCreated                      |
+| delete("/point/children")  | NodeChildrenChanged(getChildren)                       | NodeDeleted                      |
+| setData("/point/children") |                                                        | NodeDataChanged                  |
+
+### 九 zookeeper 的集群监控
+
+<https://www.cnblogs.com/linuxbug/p/4840506.html>
+
+
+
+
+
+**有时间需要看下源码，重中之重**
 
 
 

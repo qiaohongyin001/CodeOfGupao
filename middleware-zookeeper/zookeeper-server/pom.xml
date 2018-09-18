@@ -3,21 +3,17 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>wolfman-middleware</artifactId>
+        <artifactId>middleware-zookeeper</artifactId>
         <groupId>com.wolfman</groupId>
         <version>1.0-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
-    <artifactId>middleware-zookeeper</artifactId>
-    <packaging>pom</packaging>
+    <packaging>jar</packaging>
+    <artifactId>zookeeper-server</artifactId>
 
+    <name>zookeeper server</name>
+    <description> zookeeper 服务端 </description>
 
-    <name>middleware-zookeeper</name>
-    <description> zookeeper示例展示 </description>
-    <modules>
-        <module>zookeeper-client</module>
-        <module>zookeeper-server</module>
-    </modules>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -30,34 +26,6 @@
         <maven.compiler.compilerVersion>1.8</maven.compiler.compilerVersion>
     </properties>
 
-    <dependencies>
-
-        <dependency>
-            <groupId>org.apache.zookeeper</groupId>
-            <artifactId>zookeeper</artifactId>
-            <version>3.4.8</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.curator</groupId>
-            <artifactId>curator-framework</artifactId>
-            <version>4.0.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.curator</groupId>
-            <artifactId>curator-recipes</artifactId>
-            <version>4.0.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.101tec</groupId>
-            <artifactId>zkclient</artifactId>
-            <version>0.10</version>
-        </dependency>
-
-    </dependencies>
-
     <build>
         <finalName>${project.name}</finalName>
         <plugins>
@@ -67,5 +35,6 @@
             </plugin>
         </plugins>
     </build>
+
 
 </project>
