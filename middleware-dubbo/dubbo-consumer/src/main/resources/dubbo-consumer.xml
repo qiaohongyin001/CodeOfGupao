@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:dubbo="http://code.alibabatech.com/schema/dubbo"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://code.alibabatech.com/schema/dubbo
+       http://code.alibabatech.com/schema/dubbo/dubbo.xsd ">
+
+    <!--当前项目在整个分布式架构里面的唯一名称，计算依赖关系的标签-->
+    <dubbo:application name="order-provider" owner="huhao"/>
+
+    <!--dubbo这个服务所要暴露的服务地址所对应的注册中心-->
+    <!-- 单点通信 -->
+    <dubbo:registry address="N/A"/>
+
+    <!--生成一个远程服务的调用代理-->
+    <!-- 单点通信 -->
+    <!--<dubbo:reference id="orderServices" interface="com.wolfman.middleware.dubbo.api.HelloWorldService"-->
+                     <!--url="dubbo://172.100.11.111:20880/com.wolfman.middleware.dubbo.api.HelloWorldService"/>-->
+
+    <!--dubbo这个服务所要暴露的服务地址所对应的注册中心-->
+     <!--zookeeper通信 -->
+    <dubbo:registry  protocol="zookeeper" address="39.107.31.208:2181,39.107.32.43:2181,47.95.39.176:2181"  />
+
+
+    <!--生成一个远程服务的调用代理-->
+    <!-- zookeeper通信 -->
+    <!-- check属性：启动服务检查，默认为true。检查提供方是否已经提供了服务，没有任何提供方，则会报错。  -->
+    <!--<dubbo:reference id="orderServices" interface="com.wolfman.middleware.dubbo.api.HelloWorldService" protocol="dubbo"/>-->
+
+
+    <dubbo:reference id="orderServices" interface="com.wolfman.middleware.dubbo.api.HelloWorldService" protocol="hessian"/>
+
+
+    <!--<import resource="classpath*:META-INF/client/order-customer.xml"/>-->
+
+
+
+
+</beans>
