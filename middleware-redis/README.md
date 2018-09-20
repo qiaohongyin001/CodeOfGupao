@@ -663,27 +663,129 @@ AOF可以将redis执行的每一条**写命令**追加到磁盘文件中，这�
 
 redis可以在AOF文件体积变得过大时，自动地再后台对AOF进行重写。重写后的新AOF文件包含了恢复当前数据集所需的最小命令集合。整个重写操作是绝对安全的。因为redis在创建新AOF文件的过程中，会继续将命令追加到现有的AOF文件里面，即使重写过程中发生停机，现有的AOF文件也不会丢失。而一旦新AOF文件创建完毕，redis就会从旧AOF文件切换到新AOF文件，并开始对新AOF文件进行追加操作。AOF文件有序地保存了对数据库执行的所有写入操作，这些写入操作以redis协议的格式保存，因此AOF文件内容非常容易被人读懂，对文件分析（parse）也很轻松。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/redis1.jpg?raw=true)
 
+##### 2.2 AOF 同步磁盘数据
 
+redis每次更改数据的时候，aof机制都会将命令记录到aof文件中，但是实际上由于操作系统的缓存机制，数据并没有实时写入到磁盘，而是进入磁盘缓存。再通过磁盘缓存机制去刷新保存到文件中。
 
+相关规则配置：
 
+1. appendfsync always 每次执行写入都会进行同步 ， 这个是最安全但是是效率比较低的方式。
+2. appendfsync everysec 每一秒执行。
+3. appendfsync no 不主动进行同步操作，由操作系统去执行，这个是最快但是最不安全的方式。
 
+##### 2.3 AOF 文件损坏修复
 
+服务器可能在程序正在对AOF进行写入时停机，如果停机造成了AOF文件出错（corrupt），那么redis在重启时会拒绝载入这个aof文件，从而确保数据的一致性不会被破坏。
 
+当发生这种情况时，可以用一下方法来修复出错的AOF文件：
 
+1. 为现有的AOF文件创建一个备份
 
+2. 使用redis附带的redis-check-aof程序，对原来的AOF文件进行修复。
 
+3. 1. redis-check-aof --fix
 
+4. 重启redis服务器，等待服务器载入修复后的AOF文件，并进行数据恢复。
 
+#### 3 RDB 和 AOF 如何选择
 
+一般来说，如果对数据的安全性要求非常高的话，应该同时使用两种持久化功能，如果可以承受数分钟以内的数据丢失，那么可以只使用RDB持久化。
 
+有很多用户都只使用AOF持久化，但并不推荐这种方式：因为定时生成RDB快照（snapshot）非常便于进行数据库备份，并且RDB恢复数据集的速度要比AOF恢复的速度要快。
 
+两种持久化策略可以同时使用，也可以使用其中一种。如果同时使用的话，那么redis重启时，会优先使用AOF文件来还原数据。
 
+### 八 集群
 
+#### 1 复制（master、slave）
 
+master：192.168.11.138、slave：192.168.11.140/192.168.11.141
 
+**如何配置：**
 
+1. master不要动，只需要更改slave就可以了
+2. 修改11.140和11.141的redis.conf文件
+3. 增加salveof master.ip master.port
+   1. slaveof 192.168.11.138 6379
 
+##### 1.1 实现原理
 
+1. slave第一次或者重连到master上以后，会向master发送一个SYNC命令
 
+2. master收到SYNC的时候，会做两件事
+
+3. 1. 执行bgsave（rdb的快照文件）
+   2. master会把新收到的命令存入到缓存区
+
+缺点：没有办法对master进行动态选举
+
+##### 1.2 复制的方式
+
+1. 基于rdb文件的复制（第一次链接或者重连的时候）
+
+2. 无硬盘复制
+
+3. 1. repl-diskless-sync no
+
+4. 增量复制
+
+5. 1. PSYNC master run id. offset
+
+#### 2 哨兵机制
+
+1. 作用
+
+2. 1. 监控master和slave是否正常运行
+   2. 如果master出现故障，那么会把其中一台slave数据升级为master
+
+3. 配置过程
+
+4. 1. cp ../redis-3.2.8/sentinel.conf sentinel.conf 复制哨兵配置文件到redis中
+   2. 修改配置文件 port
+   3. 修改监控master节点配置：sentinel monitor mymaster 192.168.11.138 6379 2
+   4. 多少秒之内mymaster没有响应就认为down掉：sentinel down-after-milliseconds mymaster 30000
+   5. 修改配置文件后，./redis-sentinel ../sentinel.conf
+
+#### 3 集群（redis3.0以后的功能）
+
+根据key的hash值取模服务器的数量 。
+
+集群的原理：
+
+​	Redis Cluster中，Sharding采用slot(槽)的概念，一共分成16384个槽，这有点儿类似前面讲的pre sharding思路。对于每个进入Redis的键值对，根据key进行散列，分配到这16384个slot中的某一个中。使用的hash算法也比较简单，就是CRC16后16384取模。
+
+Redis集群中的每个node(节点)负责分摊这16384个slot中的一部分，也就是说，每个slot都对应一个node负责处理。当动态添加或减少node节点时，需要将16384个槽做个再分配，槽中的键值也要迁移。当然，这一过程，在目前实现中，还处于半自动状态，需要人工介入。
+
+Redis集群，要保证16384个槽对应的node都正常工作，如果某个node发生故障，那它负责的slots也就失效，整个集群将不能工作。为了增加集群的可访问性，官方推荐的方案是将node配置成主从结构，即一个master主节点，挂n个slave从节点。这时，如果主节点失效，Redis Cluster会根据选举算法从slave节点中选择一个上升为主节点，整个集群继续对外提供服务。这非常类似服务器节点通过Sentinel监控架构成主从结构，只是Redis Cluster本身提供了故障转移容错的能力。
+
+slot（槽）的概念，在redis集群中一共会有16384个槽，根据key 的CRC16算法，得到的结果再对16384进行取模。
+
+假如有3个节点
+
+node1  0 5460
+
+node2  5461 10922
+
+node3  10923 16383
+
+节点新增
+
+node4  0-1364,5461-6826,10923-12287
+
+删除节点
+
+先将节点的数据移动到其他节点上，然后才能执行删除
+
+#### 4 市面上提供了集群方案
+
+1. redis shardding而且jedis客户端就支持shardding操作SharddingJedis
+
+2. 1. 增加和减少节点的问题；
+   2. pre shardding3台虚拟机redis。但是我部署了9个节点 。每一台部署3个redis增加cpu的利用率。9台虚拟机单独拆分到9台服务器
+
+3. codis基于redis2.8.13分支开发了一个codis-server 用得比较多
+
+4. twemproxy twitter提供的开源解决方案
 
