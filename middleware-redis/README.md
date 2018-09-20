@@ -445,6 +445,187 @@ withscores是可以获得元素的分数，如果两个元素的score是相同�
 网站访问的前10名 
 ~~~
 
+### 四 事务处理、过期时间、发布订阅
+
+#### 1 事务处理
+
+1. MULTI 去开启事务
+2. EXEC 去执行事务
+3. 有种情况事务不能回滚（运行时错误，不能进行回滚）：
+
+~~~java
+127.0.0.1:6379> MULTI
+OK
+127.0.0.1:6379> set user:name huhao
+QUEUED
+127.0.0.1:6379> set user:age 20
+QUEUED
+127.0.0.1:6379> exec
+1) OK
+2) OK
+
+运行时错误：
+127.0.0.1:6379> multi
+OK
+127.0.0.1:6379> sadd member "huhao" "zhaofengwei"
+QUEUED
+127.0.0.1:6379> rpush huhao "a" "b"
+QUEUED
+127.0.0.1:6379> sadd password "111" "222"
+QUEUED
+127.0.0.1:6379> exec
+1) (integer) 2
+2) (error) WRONGTYPE Operation against a key holding the wrong kind of value
+3) (integer) 2
+~~~
+
+#### 2 过期时间
+
+1. expire key seconds
+2. ttl 获得key的过期时间
+
+~~~java
+127.0.0.1:6379> set aaa bbb
+OK
+127.0.0.1:6379> expire aaa 5
+(integer) 1
+127.0.0.1:6379> ttl aaa
+(integer) 3
+127.0.0.1:6379> get aaa
+"bbb"
+127.0.0.1:6379> get aaa
+(nil)
+~~~
+
+#### 3 发布订阅
+
+（外部访问需要修改配置文件：bind绑定ID、protected-mode受保护的）
+
+1. publish channel message —— 发布
+
+~~~java
+127.0.0.1:6379> publish wjg flesh
+(integer) 1
+~~~
+
+2. subscribe channel [ …] —— 订阅
+
+~~~java
+127.0.0.1:6379> subscribe wjg
+Reading messages... (press Ctrl-C to quit)
+1) "subscribe"
+2) "wjg"
+3) (integer) 1
+1) "message"
+2) "wjg"
+3) "reflesh"
+~~~
+
+**注意：先启动订阅在进行发布**
+
+### 五 分片策略
+
+codis . twmproxy
+
+<http://blog.51cto.com/quenlang/1636441>
+
+有时间看下
+
+### 六 实现分布式锁
+
+#### 1 锁是来解决什么问题的
+
+1. 一个进程中的多个线程，多个线程并发访问同一个资源的时候，如何解决线程安全问题。
+2. 一个分布式架构系统中的两个模块同时去访问一个文件对文件进行读写操作。
+3. 多个应用对同一条数据做修改的时候，如何保证数据的安全性。
+
+在单进程中，我们可以用到synchronized、lock之类的同步操作去解决，但是对于分布式架构下多进程的情况下如何做到跨进程的锁。就需要借助一些第三方手段来完成。
+
+#### 2 实现分布式锁的方式
+
+- 数据库可以做 activemq
+- 缓存 -redis setnx
+- zookeeper
+
+#### 3 分布式锁的实现
+
+分布式锁的解决方案：怎么去获取锁
+
+##### 3.1 数据库实现
+
+~~~java
+1.通过唯一约束
+lock(
+  id  int(11)
+  methodName  varchar(100),
+  memo varchar(1000)
+  modifyTime timestamp
+  unique key mn (method)  --唯一约束
+)
+2.获取锁的伪代码
+try{
+	exec  insert into lock(methodName,memo) values(‘method’,’desc’);    method
+	return true;
+}Catch(DuplicateException e){
+    return false;
+}
+3.释放锁
+delete from lock where methodName=’’;
+
+
+存在的需要思考的问题
+○ 锁没有失效时间，一旦解决操作失败，就会导致锁记录一直在数据库中，其他线程无法再获得到锁。
+○ 锁是非阻塞的，数据的insert操作，一旦插入失败就会直接报错。没有获得锁的线程并不会进入排队队列，再想再次获得锁就要再次触发获得锁操作。
+○ 锁事非重入的，同一个线程在没有释放锁之前无法再次获得该锁。
+~~~
+
+##### 3.2 zookeeper 实现分布式锁
+
+1. 利用zookeeper的唯一节点特性或者有序临时节点特性获得最小节点作为锁。zookeeper的实现相对简单，通过curator客户端，已经对锁的操作进行了封装。
+2. zookeeper的优势
+   1. 可靠性高、实现简单
+   2. zookeeper因为临时节点的特性，如果因为其他客户端因为异常和zookeeper链接中断了，那么接点会被删除，意味着锁会被自动释放
+   3. zookeeper本身提供了一套很好的集群方案，比较稳定
+   4. 释放锁操作，会有watch通知机制，也就是服务器端会主动发送消息给客户端这个锁已经被释放了
+
+详细代码见zookeeper
+
+##### 3.3 基于缓存的分布式锁实现
+
+redis中有一个setNx命令，这个命令只有在key不存在的情况下为key设置值。所以可以利用这个特性来实现分布式锁的操作。
+
+### 七 持久化机制
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
