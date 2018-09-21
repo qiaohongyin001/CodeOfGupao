@@ -788,4 +788,3 @@ node4  0-1364,5461-6826,10923-12287
 3. codis基于redis2.8.13分支开发了一个codis-server 用得比较多
 
 4. twemproxy twitter提供的开源解决方案
-
