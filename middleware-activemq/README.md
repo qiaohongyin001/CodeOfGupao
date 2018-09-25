@@ -270,15 +270,13 @@ ActiveMQ支持的client-broker通讯协议有：TCP、NIO、UDP、SSL、Http(s)�
 vm://localhost?brokerConfig=xbean:activemq.xml
 ~~~
 
+### 四 网络连接
 
+activeMQ如果要实现扩展性和高可用性的要求的话，就需要利用到网络连接模式。
 
+#### 1 NetworkConnector
 
-
-
-
-
-
-
+主要是配置borker与broker之间的通信连接
 
 
 
