@@ -491,15 +491,52 @@ LevelDB持久化性能高于KahaDB，虽然目前默认的持久化方式仍然�
 </persistenceAdapter>
 ~~~
 
+### 八 高可用
 
+#### 1 通过zookeeper + activemq实现高可用方案（master/slave模型）
 
+1. 修改activeMQ配置文件
 
+~~~java
+<persistenceAdapter>
+    <!-- <kahaDB directory="${activemq.data}/kahadb"/> -->
+    <replicatedLevelDB directory="${activemq.data}/levelDB"
+        replicas="2" bind="tcp://0.0.0.0:61615" 
+        zkAddress="39.107.31.208:2181,39.107.32.43:2181,47.95.39.176:2181"
+        hostname="39.107.31.208"
+        zkPath="/activemq/leveldb" />
+</persistenceAdapter>
+~~~
 
+2. 启动zookeeper
+3. 启动activeMQ
+4. 配置参数的意思：
+   1. directory： levelDB数据文件存储的位置
+   2. replicas：计算公式（replicas/2）+1 ， 当replicas的值为2的时候， 最终的结果是2. 表示集群中至少有2台是启动的
+   3. bind: 用来负责slave和master的数据同步的端口和ip
+   4. zkAddress： 表示zk的服务端地址
+   5. hostname：本机ip
 
+#### 2 JDBC存储的主从方案
 
+基于LOCK锁表的操作来实现master/slave
 
+#### 3 基于共享文件系统的主从方案
 
+挂载网络磁盘，将数据文件保存到指定磁盘上即可完成master/slave模式。
 
+#### 4 容错连接
+
+~~~java
+ActiveMQConnectionFactory connectionFactory = 
+        new ActiveMQConnectionFactory(
+                "failover:(tcp://39.107.31.208:61616,tcp://39.107.32.43:61616)"
+        );
+~~~
+
+#### 5 高性能 + 高可用
+
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-activemq/img/activemq10.jpg?raw=true)
 
 
 
