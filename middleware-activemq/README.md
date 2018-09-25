@@ -310,9 +310,232 @@ activeMQ如果要实现扩展性和高可用性的要求的话，就需要利用
 </policyEntry>
 ~~~
 
-### 3 动态网络连接
+#### 3 动态网络连接
 
 multilcast
 
 networkConnector是一个高性能方案，并不是一个高可用方案
+
+### 五 持久化消息和非持久化消息
+
+#### 1 持久化消息和非持久化消息的发送策略
+
+通过一下方式来配置：
+
+~~~java
+textMessage.setJMSDeliveryMode(DeliveryMode.PERSISTENT);
+~~~
+
+#### 2 消息的同步发送和异步发送
+
+ActiveMQ支持同步、异步两种发送模式将消息发送到broker上。
+
+同步发送过程中，发送者发送一条消息会阻塞直到broker反馈一个确认消息，表示消息已经被broker处理。这个机制提供了消息的安全性保障，但是由于是阻塞的操作，会影响到客户端消息发送的性能。
+
+异步发送的过程中，发送者不需要等待broker提供反馈，所以性能相对较高。但是可能会出现消息丢失的情况。所以使用异步发送的前提是在某些情况下允许出现数据丢失的情况。
+
+默认情况下，非持久化消息是异步发送的，持久化消息并且是在非事务模式下是同步发送的。
+
+但是在开启事务的情况下，消息都是异步发送。由于异步发送的效率会比同步发送性能更高。所以在发送持久化消息的时候，尽量去开启事务会话。
+
+除了持久化消息和非持久化消息的同步和异步特性以外，我们还可以通过以下几种方式来设置异步发送：
+
+~~~java
+ConnectionFactory connectionFactory=new ActiveMQConnectionFactory("tcp://192.168.11.153:61616?jms.useAsyncSend=true");2.((ActiveMQConnectionFactory) connectionFactory).setUseAsyncSend(true);3.((ActiveMQConnection)connection).setUseAsyncSend(true);
+~~~
+
+#### 3 持久化消息和非持久化消息的存储原理
+
+正常情况下，非持久化消息是存储在内存中的，持久化消息是存储在文件中的。能够存储的最大消息数据在${ActiveMQ_HOME}/conf/activemq.xml文件中的systemUsage节点。
+
+SystemUsage配置设置了一些系统内存和硬盘容量
+
+~~~activemq.xml
+<systemUsage>
+	<systemUsage>
+		该子标记设置整个 ActiveMQ 节点的“可用内存限制”。这个值不能超过 ActiveMQ 本身设置的最大内存大小，其中 percentOfJvmHeap 属性标识百分比，占用70%的堆内存 
+		<memoryUsage>
+			<memoryUsage percentOfJvmHeap="70" />
+		</memoryUsage>
+		该标记设置整个 ActiveMQ 节点，用于存储“持久化消息”的“可用磁盘空间”。该子标记的 limit 属性必须要进行设置
+		<storeUsage>
+			<storeUsage limit="100 gb"/>
+		</storeUsage>
+		<tempUsage>
+			一旦 ActiveMQ 服务节点存储的消息达到了 memoryUsage 的限制，非持久化消息就会被转储到 temp store 区域，虽然我们说过非持久化消息不进行持久化存储，但是 ActiveMQ 为了防止“数据洪峰”出现时，非持久化消息大量堆积致使内存耗尽的情况出现，还是会将非持久化消息写入到磁盘的临时区域 - temp store。这个子标记就是为了设置这个 temp store 区域的“可用磁盘空间限制” 
+			<tempUsage limit="50 gb"/>
+		</tempUsage>
+	</systemUsage>
+</systemUsage>
+~~~
+
+从上面的配置我们需要get到一个结论，当非持久化消息堆积到一定程度的时候，也就是内存超过指定的设置阀值时，ActiveMQ会将内存中的非持久化消息写入到临时文件，以便腾出内存。但是它和持久化消息的区别是，重启之后，持久化消息会从文件中恢复，非持久化的临时文件会直接删除。
+
+### 六 activemq 源码分析
+
+#### 1 消息发送源码分析
+
+详见pdf文档 有空的时候整理下
+
+#### 2 消息消费源码分析
+
+详见pdf文档 有空的时候整理下
+
+### 七 持久化存储
+
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-activemq/img/activemq9.jpg?raw=true)
+
+#### 1 持久化存储支持的类型
+
+ActiveMQ支持多种不同的持久化方式，主要有以下几种，不过，无论使用哪种持久化方式，消息的存储逻辑都是一致的。
+    1. KahaDB存储（默认存储方式）
+    2. JDBC存储
+    3. Memory存储
+    4. LevelDB存储
+    5. JDBC With ActiveMQ Journal
+
+#### 2 KahaDB - 默认的存储方式
+
+KahaDB是目前默认的存储方式,可用于任何场景,提高了性能和恢复能力。消息存储使用一个事务日志和仅仅用一个索引文件来存储它所有的地址。
+
+KahaDB是一个专门针对消息持久化的解决方案,它对典型的消息使用模式进行了优化。在Kaha中,数据被追加到data logs中。当不再需要log文件中的数据的时候,log文件会被丢弃。
+
+1. 配置方式
+
+~~~java
+<persistenceAdapter>    
+	<kahaDB directory="${activemq.data}/kahadb"/>
+</persistenceAdapter>
+~~~
+
+2. 存储原理
+   1. 在data/kahadb这个目录下，会生成四个文件
+   2. db.data 它是消息的索引文件，本质上是B-Tree（B树），使用B-Tree作为索引指向db-*.log里面存储的消息。*
+   3. db.redo 用来进行消息恢复
+   4. db-*.log 存储消息内容。新的数据以APPEND的方式追加到日志文件末尾。属于顺序写入，因此消息存储是比较快的。默认是32M，达到阀值会自动递增
+   5. lock文件锁，表示当前获得kahadb读写权限的broker
+
+#### 3 AMQ 基于文件的存储方式
+
+1. 写入速度很快，容易恢复。
+2. 文件默认大小是32M
+
+#### 4 JDBC 基于数据库的存储（JDBC Store）
+
+使用JDBC持久化方式，数据库会创建3个表：activemq_msgs，activemq_acks和activemq_lock。
+
+1. ACTIVEMQ_ACKS ： 存储持久订阅的信息和最后一个持久订阅接收的消息ID
+2. ACTIVEMQ_LOCK ： 锁表（用来做集群的时候，实现master选举的表）
+3. ACTIVEMQ_MSGS ： 消息表，queue和topic都存在这个表中
+4. 实现
+
+~~~java
+<persistenceAdapter>
+    <jdbcPersistenceAdapter dataSource="#mysqlDataSource" createTablesOnStartup="true" />
+</persistenceAdapter>
+<bean id="mysqlDataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close"> 
+	<property name="driverClassName" value="com.mysql.jdbc.Driver"/>  
+    <property name="url" value="jdbc:mysql://47.93.118.50:3306/activemq"/>  
+    <property name="username" value="develop"/>  
+    <property name="password" value="develop1234"/>  
+</bean>
+~~~
+
+5. 把三个包放入 activemq 的 lib 包中
+
+~~~java
+lib中的3个包
+~~~
+
+#### 5 JDBC Message store with activeMQ journal
+
+这种方式克服了JDBC Store的不足，JDBC每次消息过来，都需要去写库和读库。
+ActiveMQ Journal，使用高速缓存写入技术，大大提高了性能。
+当消费者的消费速度能够及时跟上生产者消息的生产速度时，journal文件能够大大减少需要写入到DB中的消息。
+举个例子，生产者生产了1000条消息，这1000条消息会保存到journal文件，如果消费者的消费速度很快的情况下，在journal文件还没有同步到DB之前，消费者已经消费了90%的以上的消息，那么这个时候只需要同步剩余的10%的消息到DB。
+如果消费者的消费速度很慢，这个时候journal文件可以使消息以批量方式写到DB。
+配置如下：将原来的标签注释掉，添加如下标签
+
+~~~java
+<persistenceFactory>
+    <journalPersistenceAdapterFactory dataSource="#Mysql-DS" dataDirectory="activemq-data"/>
+</persistenceFactory>
+~~~
+
+在服务端循环发送消息。可以看到数据是延迟同步到数据库的
+
+#### 6 Memory 基于内存的存储
+
+基于内存的消息存储，内存消息存储主要是存储所有的持久化的消息在内存中。persistent=”false”,表示不设置持久化存储，直接存储到内存中。
+
+~~~java
+<beans>
+    <broker brokerName="test-broker" persistent="false"
+        xmlns="http://activemq.apache.org/schema/core">
+        <transportConnectors>
+            <transportConnector uri="tcp://localhost:61635"/>
+        </transportConnectors> 
+    </broker>
+</beans>
+~~~
+
+#### 7 LevelDB
+
+LevelDB持久化性能高于KahaDB，虽然目前默认的持久化方式仍然是KahaDB。并且，在ActiveMQ 5.9版本提供了基于LevelDB和Zookeeper的数据复制方式，用于Master-slave方式的首选数据复制方案。
+
+不过，据ActiveMQ官网对LevelDB的表述：LevelDB官方建议使用以及不再支持，推荐使用的是KahaDB。
+
+~~~java
+<persistenceAdapter>
+    <levelDBdirectory="activemq-data"/>
+</persistenceAdapter>
+~~~
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
