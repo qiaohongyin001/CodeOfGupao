@@ -538,37 +538,115 @@ ActiveMQConnectionFactory connectionFactory =
 
 ![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-activemq/img/activemq10.jpg?raw=true)
 
+### 九 hawtio监控
+
+ActiveMQ自带的管理界面的功能十分简单，只能查看ActiveMQ当前的Queue和Topics等简单信息，不能监控ActiveMQ自身运行的JMX信息等。
+
+HawtIO 是一个新的可插入式 HTML5 面板，设计用来监控 ActiveMQ, Camel等系统；ActiveMQ在5.9.0版本曾将hawtio嵌入自身的管理界面，但是由于对hawtio的引入产生了争议，在5.9.1版本中又将其移除，但是开发者可以通过配置，使用hawtio对ActiveMQ进行监控。本文介绍了通过两种配置方式，使用hawtio对ActiveMQ进行监控。
+
+1. 从<http://hawt.io/getstarted/index.html> 下载hawtio的应用程序
+2. 下载好后拷贝到ActiveMQ安装目录的webapps目录下，改名为hawtio.war并解压到到hawtio目录下。
+3. 编辑ActiveMQ安装目录下conf/jetty.xml文件,在第75行添加以下代
+
+~~~java
+<bean class="org.eclipse.jetty.webapp.WebAppContext">
+	<property name="contextPath" value="/hawtio" />
+    <property name="war" value="${activemq.home}/webapps/hawtio" /> 
+    <property name="logUrlOnStart" value="true" />  
+</bean>
+~~~
+
+4. 修改bin/env文件
+
+~~~java
+-Dhawtio.realm=activemq -Dhawtio.role=admins
+-Dhawtio.rolePrincipalClasses=org.apache.activemq.jaas.GroupPrincipal
+需要注意的是-Dhawtio的三个设定必须放在ACTIVEMQ_OPTS设置的最前面(在内存参数设置之后),否则会出现验证无法通过的错误(另外,ACTIVEMQ_OPTS的设置语句不要回车换行)
+~~~
+
+5. 启动activeMQ服务。访问<http://ip:8161/hawtio>
+
+### 十 消费端prefetchSize和消息确认过程
+
+#### 1 消息的发送策略
+
+1. 持久化消息
+
+   1. 默认情况下，生产者发送的消息是持久化的。消息发送到broker以后，producer会等待broker对这条消息的处理情况的反馈。
+
+   2. 可以设置消息发送端发送持久化消息的异步方式
+
+   3. ~~~java
+      connectionFactory.setUseAsyncSend(true);
+      ~~~
+
+   4. 回执窗口大小设置
+
+   5. ~~~java
+      connectionFactory.setProducerWindowSize();
+      ~~~
+
+2. 非持久化消息
+
+~~~java
+textMessage.setJMSDeliveryMode(DeliveryMode.NON_PERSISTENCE);
+~~~
+
+非持久化消息模式下，默认就是异步发送过程，如果需要对非持久化消息的每次发送的消息都获得broker的回执的话
+
+~~~java
+connectionFactory.setAlwaysSyncSend();
+~~~
+
+#### 2 consumer获取消息是pull还是（broker的主动 push）
+
+默认情况下，mq服务器（broker）采用异步方式向客户端主动推送消息（push）。也就是说broker在向某个消费者会话推送消息后，不会等待消费者响应消息，直到消费者处理完消息以后，主动向broker返回处理结果。
+
+prefetchsize（预取消息数量）：broker端一旦有消息，就主动按照默认设置的规则推送给当前活动的消费者。每次推送都有一定的数量限制，二这个数量就是prefetchsize
+
+​    Queue
+
+​        持久化消息	prefetchsize：1000
+
+​        非持久化消息	prefetchsize：1000
+
+​    topic
+
+​        持久化消息	prefetchsize：100
+
+​        非持久化消息	prefetchsize：32766
+
+​    假如prefetchSize=0 . 此时对于consumer来说，就是一个pull模式
+
+~~~java
+Destination destination = session.createQueue("wjg-fb-queue?customer.prefetcheSize=100");
+~~~
+
+#### 3 关于acknowledge为什么能够在第5次主动执行ack以后，把前面的消息都确认掉
+
+~~~DEBUG
+deliveredMessages = {LinkedList@1340} size= 4
+~~~
+
+表示已经被consumer接收但未确认的消息。
+
+#### 4 消息确认
+
+1. ACK_TYPE，消费端和broker交换ack指令的时候，还需要告知broker ACK_TYPE。
+
+2. 1. ACK_TYPE表示确认指令的类型，broker可以根据不同的ACK_TYPE去针对当前消息做不同的应对策略：
+
+3. REDELIVERED_ACK_TYPE (broker会重新发送该消息)  重发侧策略
+
+4. DELIVERED_ACK_TYPE  消息已经接收，但是尚未处理结束
+
+5. STANDARD_ACK_TYPE  表示消息处理成功
 
 
 
+消息确认流程图：
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-activemq/img/activemq11.jpg?raw=true)
 
 
 
