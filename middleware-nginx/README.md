@@ -2,6 +2,10 @@
 
 **Nginx官方网站：**<http://nginx.org/>
 
+Nginx安装包下载 http://nginx.org/download/nginx-1.13.6.tar.gz
+
+keepalived 安装包下载http://www.keepalived.org/software/keepalived-1.3.2.tar.gz
+
 - 反向代理和正向代理
 
 1. 正向代理
@@ -490,37 +494,190 @@ upstream tomcatserver{
 - 7. fair：根据服务器的响应时间来分配请求
   8. url_hash
 
+### 九 实战演练
 
+gupao-protal 首页
 
+tomcat1 / tomcat2
 
+nginx配置对应的文件 ; /etc/nginx/conf.d/*.conf
 
+upstream.conf  用来配置负载均衡的服务
 
+[www.gupao.com.conf](http://www.gupao.com.conf) 用来配置host信息
 
+配置信息请参考对应的文件，在git上
 
+1. upstream.conf
+2. [www.gupao.com.conf](http://www.gupao.com.conf)
+3. [nginx.conf](http://www.gupao.com.conf)
 
+详见代码中配置文件
 
+~~~nginx
+配置说明
+worker_rlimit_nofile 10240;  #too many open files
+main：nginx最大文件打开数
+use epoll;#select pool epoll kqueue
+events：IO模型
+worker_connections  10240;
+events：最大并发连接数
+accept_mutex off;
+events：惊群效应。只有一个worker来处理这个请求
+include  mime.types;
+default_type  application/octet-stream;
+http：加载文件映射表，如果找不到，则为default_type
+~~~
 
+### 十 进程模型
 
+#### 1 master 进程
 
+充当整个进程组与用户的交互接口，同时对进程进行监控。它不需要处理网络事件，不负责业务的执行，只会通过管理work进程来实现重启服务、平滑升级、更换日志文件、配置文件实时生效等功能。
 
+主要是用来管理woker进程。
 
+1. 接收来自外界的信号（前面提到的 kill -HUP 信号等）
 
+2. 1. 我们要控制nginx，只需要通过kill向master进程发送信号就行了。
+   2. 比如kill -HUP pid，则告诉nginx，从容地重启nginx，我们一般用这个信号来重启nginx，或重新加载配置，因为是从容地从其，因此服务是不中断的。master进程在接收到HUP信号后是怎么做的呢？首先master进程在接收到信号后，会先重新加载配置文件，然后再启动新的worker进程，并向所有老的woker进程发送新型号，告诉他们可以光荣退休了。新的worker在启动后，就开始接收新的请求，而老的worker在收到来自master的信号后，就不再接收新的请求，并且当前进程中的所有未处理完的请求处理成功后，再退出。
 
+3. 向各个woker进程发送信号
 
+4. 监控worker进程的运行状态
 
+5. 当worker进程退出后（异常情况下），会自动重新启动新的worker进程
 
+#### 2 worker 进程
 
+主要是完成具体的任务逻辑。他的主要关注点是客户端和后端真实服务器之间的数据可读、可写等I/O交互事件。
 
+各个worker进程之间是对等且相互独立的，他们同等竞争来自客户端的请求，一个请求只可能在一个worker进程中处理，worker进程个数一般设置为CPU核数。
 
+master进程先建好需要listen的socket后，然后再fork出多个worker进程，这样每个work进程都可以去accept这个socket。当要个client连接到来时，所有accept的worker进程会收到通知，但只有一个进程可以accept成功，其他的则会accept失败。
 
+~~~nginx
+设置线程数
+worker_processes 4;
+worker_cpu_affinity 0001 0010 0100 1000;
+~~~
 
+### 十一 配置 https 请求
 
+1. https基于SSL/TLS这个协议
+2. 非对称加密、对称解密、hash算法
+3. crt的证书->返回给浏览器
 
+#### 1 创建证书
 
+1. 创建服务器私钥
 
+2. 1. openssl genrsa -des3 -out server.key 1024
 
+3. 创建签名请求的证书（csr）; csr核心内容是一个公钥
 
+4. 1. openssl req -new -key server.key -out server.csr
 
+5. 去除使用私钥时的口令验证
+
+6. 1.  cp server.key server.key.org
+   2. openssl rsa -in server.key.org -out server.key
+
+7. 标记证书使用私钥和csr
+
+8. 1. openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+   2. x509是一种证书格式
+
+9. server.crt就是我们需要的证书
+
+#### 2 nginx 中的配置
+
+配置详见代码中：www.gupao.com.conf 配置文件
+
+#### 3 tomcat 增加对 https 的支持
+
+1. Connector 8080节点加入 redirectPort="443" proxyPort="443"
+2. redirectPort ：当http请求有安全约束才会转到443端口使用ssl传输
+
+### 十二 nginx+keepalived 高可用
+
+keepalived -> VRRP（虚拟路由器冗余协议）
+
+VRRP 全称 Virtual Router Redundancy Protocol，即虚拟路由器冗余协议。可以认为他是实现路由器高可用的容错协议，即将N台提供相同功能的路由器组成一个路由器组（Router Group），这个组里面有一个master和多个backup，但是外界看来就像一台一样，构成虚拟路由器，拥有一个虚拟IP（vip，也就是路由器所在局域网内其他机器默认路由），占有这个IP的master实际负责ARP响应和转发IP数据包，组中的其他路由器作为备份的角色处于待命状态。master会发组播消息，当backup在超时时间内收不到vrrp包时，就认为master宕掉了，这时就需要根据VRRP的优先级来选举一个backup当master，保证路由器的高可用。
+
+#### 1 安装 keepalived
+
+1. tar -zxvf keepalived.tar.gz
+
+2. ./configure --prefix=/mic/data/program/keepalived --sysconf=/etc
+
+3. 缺少依赖
+
+4. 1. yum install gcc； 
+   2. yum install openssl-devel；
+   3. yum -y install libnl libnl-devel；
+
+5. 编译安装
+
+6. 1. make && make install
+
+7. cd 到解压的包 /parker/data/program/keepalived-1.3.9
+
+8. ln -s /mic/data/program/keepalived/sbin/keepalived /sbin --建立软链接
+
+9. cp /mic/data/program/keepalived-1.3.9/keepalived/etc/init.d/keepalived /etc/init.d/
+
+10. 添加到系统服务
+
+11. 1. chkconfig --add keepalived
+    2. chkconfig keepalived on
+    3. Service keepalived start
+
+#### 2 基于 keepalived + nginx 的配置 
+
+keepalived.conf：
+
+~~~nginx
+! Configuration File for keepalived
+
+global_defs {
+   router_id LVS_DEVEL
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface ens33
+    virtual_router_id 51
+    priority 100
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.11.100
+    }
+}
+
+virtual_server 192.168.11.100 80 {
+    delay_loop 6
+    lb_algo rr
+    lb_kind NAT
+    persistence_timeout 50
+    protocol TCP
+
+    real_server 192.168.11.140 80 {
+        weight 1
+        TCP_CHECK {
+          connect_timeout 3
+          delay_before_retry 3
+          connect_port 80
+        }
+    }
+}
+~~~
+
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-nginx/img/nginx4.jpg?raw=true)
 
 
 
