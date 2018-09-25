@@ -274,17 +274,45 @@ vm://localhost?brokerConfig=xbean:activemq.xml
 
 activeMQ如果要实现扩展性和高可用性的要求的话，就需要利用到网络连接模式。
 
-#### 1 NetworkConnector
+- NetworkConnector
 
 主要是配置borker与broker之间的通信连接
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-activemq/img/activemq7.jpg?raw=true)
 
+如上图所示，服务器S1和S2通过 NetworkConnector 相连，则生产者P1发送消息，消费者C3和C4都可以接收到，而生产者P3发送的消息，消费者C1和C2同样也可以接收到。 
 
+#### 1 静态网络连接
 
+1. 修改配置文件activemq.xml，增加如下内容
 
+~~~java
+<networkConnectors>
+	<networkConnector uri="static://(tcp://192.168.11.140:61616,tcp://192.168.11.137:61616)" />
+</networkConnectors>
+~~~
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-activemq/img/activemq8.jpg?raw=true)
 
+2. 两个broker通过一个static协议来进行网络链接。一个 consumer 连接到 brokerB的一个地址上，当producer 在brokerA上以相同的地址发送消息时，此时消息会被转移到 brokerB上，也就是说 brokerA 会转发消息到 brokerB上。
 
+#### 2 丢失的消息
 
+1. 一些 consumer 连接到broker1、消费broker2上的消息。消息先被 broker1 从broker2消费掉，然后转发给这些 consumers。假设，转发消息的时候 broker1 重启了，这些consumers 发现 brokers1 连接失败，通过 failover 连接到 broker2 。但是因为有一部分没有消费的消息被broker2已经分发到broker1上去了，这些消息就好像消失了。除非有消费者重新连接到broker1上来消费。
+2. 从5.6版本开始，在 destinationPolicy 上新增了一个选项replayWhenNoConsumers 属性，这个属性可以用来解决当broker1上有需要转发的消息但是没有消费者时，把消息回流到它原始的broker。同时把enableAudit设置为false，为了防止消息回流后被当作重复消息而不被分发。
+3. 通过如下配置，在activeMQ.xml中。 分别在两台服务器都配置。即可完成消息回流处理。
 
+~~~java
+<policyEntry queue=">" enableAudit="false">
+	<networkBridgeFilterFactory>
+		<conditionalNetworkBridgeFilterFactory replayWhenNoConsumers = "true" />
+	</networkBridgeFilterFactory>
+</policyEntry>
+~~~
+
+### 3 动态网络连接
+
+multilcast
+
+networkConnector是一个高性能方案，并不是一个高可用方案
 
