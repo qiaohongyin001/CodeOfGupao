@@ -196,19 +196,82 @@ this.consumer.assign(Arrays.asList(p0));
 
 ### 四 实现细节及高吞吐量的因素
 
+#### 1 实现细节
 
+1. 消息
+   1. 消息有key【可选】、value；
+   2. 消息是kafka中最基本的数据单元。消息由一串字节构成，其中主要由key和value构成，key和value也都是byte数组。
+   3. key的主要作用是根据一定的策略，将消息路由到指定的分区中，这样就可以保证包含同一个key的消息全部写入到同一个分区中，key可以是null。
+   4. 为了提高网络的存储和利用率，生产者会批量发送消息到kafka，并在发送之前对消息进行压缩。
+2. topic & partition
+   1. topic是用于存储消息的逻辑概念，可以看作一个消息集合。每个topic可以有多个生产者向其推送消息，也可以有任意多个消费者消费其中的消息。
+   2. 每个topic可以划分多个分区（每个topic至少有一个分区），同一个topic下的不同分区包含的消息是不同的。每个消息在被添加到分区时，都会被分配一个offset（称之为偏移量），他是消息在此分区中的唯一编号，kafka通过offset保证消息在分区内的顺序，offset的顺序不跨分区，即kafka只保证再同一个分区内的消息是有序的；
+   3. partition是以文件的形式存储在文件系统中，存储在由配置文件中的log.dirs指定的目录下，命名规则：<topic_name>-<partition_id>
 
+|                                                              |                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| ![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka5.jpg?raw=true) | ![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka6.jpg?raw=true) |
 
+#### 2 高吞吐量的因素
 
+1. 顺序写的方式存储数据；频繁的IO（网络IO和磁盘IO）
+2. 批量发送
+   1. 在异步发送模式中。kafka允许进行批量发送，也就是先讲消息缓存到内存中，然后一次请求批量发送出去。这样减少磁盘频繁IO以及网络IO造成的性能瓶颈。
+   2. batch.size 每批次发送的数据大小
+   3. linger.ms 间隔时间
+3. 零拷贝
+   1. 消息从发送到落地保存，broker维护的消息日志本身就是文件目录，每个文件都是二进制保存，生产者和消费者使用相同的格式来处理。在消费者获取消息时，服务器先从硬盘读取数据到内存，然后把内存中的数据原封不动的通过socket发送给消费者。虽然这个操作描述起来简单，但实际上经历了很多步骤：
 
+~~~java
+//1.操作系统将数据从磁盘读入到内核空间的页缓存
+//2.应用程序将数据从内核空间读入到用户空间缓存中
+//3.应用程序将数据写回到内核空间到socket缓存中
+//4.操作系统将数据从socket缓冲区复制到网卡缓存区，以便数据经网络发出
+~~~
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka7.jpg?raw=true)
 
+通过“零拷贝”技术可以去掉这些没必要的数据复制操作，同时也会减少上下文切换次数。FileChannel.transferTo
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka8.jpg?raw=true)
 
+### 五 kafka 的消费原理
 
+之前Kafka存在的一个非常大的性能隐患就是利用ZK来记录各个Consumer Group 的消费进度（offset）。当然JVM Client帮我们自动做了这些事情，但是Consumer需要和ZK频繁交互，而利用ZK Client API对ZK频繁写入事一个低效的操作。并且从水平扩展上来讲也存在问题。所以ZK抖一抖，集群吞吐量就跟着一起抖，严重的时候简直抖的停不下来。
 
+新版Kafka已推荐将consumer的位移信息保存再Kafka内部的topic中，即__consumer_offsets_topic。通过一下才做来看看____consumer_offsets_topic是怎么存储消费进度的，__consumer_offsets_topic默认有50个分区。
 
+1. 计算consumer group对应的hash值
 
+2. 1. Math.abs("DemoGroup1".hashCode())%50
+
+3. 获得consumer group的位移信息
+
+4. 1. bin/kafka-simple-consumer-shell.sh --topic __consumer_offsets --partition 15 -broker-list 192.168.11.140:9092,192.168.11.141:9092,192.168.11.138:9092 --formatter "kafka.coordinator.group.GroupMetadataManager\$OffsetsMessageFormatter"
+
+~~~java
+[root@iZ2zeeufalzdvyrne9oa4qZ kafka-logs]# ls /tmp/kafka-logs/
+cleaner-offset-checkpoint  __consumer_offsets-21  __consumer_offsets-33  __consumer_offsets-48        mhxy-wdd-0
+__consumer_offsets-0       __consumer_offsets-24  __consumer_offsets-36  __consumer_offsets-6         recovery-point-offset-checkpoint
+__consumer_offsets-12      __consumer_offsets-27  __consumer_offsets-39  __consumer_offsets-9         replication-offset-checkpoint
+__consumer_offsets-15      __consumer_offsets-3   __consumer_offsets-42  log-start-offset-checkpoint
+__consumer_offsets-18      __consumer_offsets-30  __consumer_offsets-45  meta.properties
+~~~
+
+### 六 日志策略
+
+#### 1 日志保留策略
+
+无论消费者是否已经消费了消息，kafka都会一直保存这些消息，但并不会像数据库那样长期保存。为了避免磁盘被占满，kafka会配置响应的保留策略（retention policy），以实现周期性地删除陈旧数据。
+
+kafka有两种“保留策略”：
+
+1. 根据消息保留的时间，当消息在kafka中保存的时间超过了指定时间，就可以被删除。
+2. 根据topic存储的数据大小，当topic所占的日志文件大小大于一个阈值，则可以开始删除最旧的消息。
+
+#### 2 日志压缩策略
+
+在很多场景中，消息的key与value的值之间对应关系是不断变化的，就像数据库中的数据会不断被修改一样，消费者只关心key对应的最新的value。我们可以开日志压缩功能，kafka定期将相同key的消息进行合并，只保留最新的value值。
 
 
 
