@@ -313,6 +313,97 @@ sh kafka-topics.sh --create --zookeeper 192.168.11.140:2181
 
 #### 4 副本机制
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka10.jpg?raw=true)
+
+副本的leader选举：数据同步，leader选举
+
+##### 4.1 ISR（副本同步队列 zookeeper上isr_change_notification节点)
+
+**维护的是有资格的follower节点**
+
+1. 副本的所有节点都必须要和zookeeper保持连接状态
+2. 副本的最后一条消息的offset和leader副本的最后一条消息的offset之间的差值不能超过指定的阀值，这个阀值是可以设置的（replica.lag.max.messages）
+
+##### 4.2 HW&LEO（follow与leader数据同步）
+
+关于follower副本同步的过程中，还有两个关键的概念，HW(HighWatermark)和LEO(Log End Offset)。 
+这两个参数跟ISR集合紧密关联。HW标记了一个特殊的offset，当消费者处理消息的时候，只能拉去到HW之前的消息，HW之后的消息对消费者来说是不可见的。也就是说，取partition对应ISR中最小的LEO作为HW，consumer最多只能消费到HW所在的位置。
+
+每个replica都有HW，leader和follower各自维护更新自己的HW的状态。对于leader新写入的消息，consumer不能立刻消费，leader会等待该消息被所有ISR中的replicas同步更新HW，此时消息才能被consumer消费。这样就保证了如果leader副本损坏，该消息仍然可以从新选举的leader中获取。
+
+LEO 是所有副本都会有的一个offset标记，它指向追加到当前副本的最后一个消息的offset。当生产者向leader副本追加消息的时候，leader副本的LEO标记就会递增；当follower副本成功从leader副本拉去消息并更新到本地的时候，follower副本的LEO就会增加。
+
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka11.jpg?raw=true)
+
+### 八 高可用副本机制
+
+在kfaka0.8版本前，并没有提供这种High Availablity机制，也就是说一旦一个或者多个broker宕机，则在这期间内所有的partition都无法继续提供服务。如果broker无法再恢复，则上面的数据就会丢失。所以在0.8版本以后引入了High Availablity机制。
+
+#### 1 关于leader election
+
+在kafka引入replication机制以后，同一个partition会有多个Replica。那么在这些replication之间需要选出一个Leader，Producer或者Consumer只与这个Leader进行交互，其他的Replica作为Follower从leader中复制数据（因为需要保证一个Partition中的多个Replica之间的数据一致性，其中一个Replica宕机以后其他的Replica必须要能继续提供服务且不能造成数据重复和数据丢失）。
+
+如果没有leader，所有的Replica都可以同时读写数据，那么就需要保证多个Replica之间互相同步数据，数据一致性和有序性就很难保证，同时也增加了Replication实现的复杂性和出错的概率。在引入leader以后，leader负责数据读写，follower只向leader顺序fetch数据，简单而且高效。
+
+#### 2 如何将所有的Replica均匀分布到整个集群
+
+为了更好的做到负载均衡，kafka尽量会把所有的partition均匀分配到整个集群上。如果所有的replica都在同一个broker上，那么一旦broker宕机所有的Replica都无法工作。kafka分配Replica的算法。
+
+1. 把所有的Broker（n）和待分配的Partition排序
+2. 把第i个partition分配到 （i mod n）个broker上
+3. 把第i个partition的第j个Replica分配到 ( (i+j) mod n) 个broker上
+
+#### 3 如何处理所有的Replica不工作的情况
+
+在ISR中至少有一个follower时，Kafka可以确保已经commit的数据不丢失，但如果某个Partition的所有Replica都宕机了，就无法保证数据不丢失了
+
+1. 等待ISR中的任一个Replica“活”过来，并且选它作为Leader
+2. 选择第一个“活”过来的Replica（不一定是ISR中的）作为Leader
+
+这就需要在可用性和一致性当中作出一个简单的折衷。
+
+如果一定要等待ISR中的Replica“活”过来，那不可用的时间就可能会相对较长。而且如果ISR中的所有Replica都无法“活”过来了，或者数据都丢失了，这个Partition将永远不可用。
+
+选择第一个“活”过来的Replica作为Leader，而这个Replica不是ISR中的Replica，那即使它并不保证已经包含了所有已commit的消息，它也会成为Leader而作为consumer的数据源（前文有说明，所有读写都由Leader完成）。
+
+Kafka0.8.*使用了第二种方式。Kafka支持用户通过配置选择这两种方式中的一种，从而根据不同的使用场景选择高可用性还是强一致性。
+
+#### 九 文件存储机制
+
+~~~java
+[root@iZ2zeeufalzdvyrne9oa4qZ mhxy-wdd-0]# ls /tmp/kafka-logs/mhxy-wdd-0/
+00000000000000000000.index  00000000000000000000.log  00000000000000000000.timeindex  leader-epoch-checkpoint
+~~~
+
+#### 1 查看kafka数据文件内容
+
+在使用kafka的过程中有时候需要我们查看产生的消息的信息，这些都被记录在kafka的log文件中。由于log文件的特殊格式，需要通过kafka提供的工具来查看
+
+~~~java
+./bin/kafka-run-class.sh kafka.tools.DumpLogSegments --files /tmp/kafka-logs/*/000**.log  --print-data-log {查看消息内容}
+
+[root@iZ2zeeufalzdvyrne9oa4qZ bin]# sh kafka-run-class.sh kafka.tools.DumpLogSegments --files /tmp/kafka-logs/mhxy-wdd-0/00000000000000000000.log  --print-data-log
+Dumping /tmp/kafka-logs/mhxy-wdd-0/00000000000000000000.log
+Starting offset: 0
+baseOffset: 0 lastOffset: 0 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1 partitionLeaderEpoch: 4 isTransactional: false position: 0 CreateTime: 1537926853638 isvalid: true size: 80 magic: 2 compresscodec: NONE crc: 2875669935
+baseOffset: 1 lastOffset: 1 baseSequence: -1 lastSequence: -1 producerId: -1 producerEpoch: -1 partitionLeaderEpoch: 4 isTransactional: false position: 80 CreateTime: 1537926854654 isvalid: true size: 80 magic: 2 compresscodec: NONE crc: 3836252510
+baseOffset: 2 lastOffset: 2 baseSequence: -1 lastSequence: -1 producerId: -1 
+~~~
+
+#### 2 存储机制
+
+在kafka文件存储中，同一个topic下有多个不同的partition，每个partition为一个目录，partition的名称规则为：topic名称+有序序号，第一个序号从0开始，最大的序号为partition数量减1，partition是实际物理上的概念，而topic是逻辑上的概念。
+
+partition还可以细分为segment，这个segment是什么呢？ 假设kafka以partition为最小存储单位，那么我们可以想象当kafka producer不断发送消息，必然会引起partition文件的无线扩张，这样对于消息文件的维护以及被消费的消息的清理带来非常大的挑战，所以kafka 以segment为单位又把partition进行细分。每个partition相当于一个巨型文件被平均分配到多个大小相等的segment数据文件中（每个setment文件中的消息不一定相等），这种特性方便已经被消费的消息的清理，提高磁盘的利用率。
+
+**segment（部分） file组成：**由2大部分组成，分别为index file和data file，此2个文件一一对应，成对出现，后缀".index"和“.log”分别表示为segment索引文件、数据文件。
+
+**segment文件命名规则：**partition全局的第一个segment从0开始，后续每个segment文件名为上一个segment文件最后一条消息的offset值。数值最大为64位long大小，19位数字字符长度，没有数字用0填充。
+
+
+
+
+
 
 
 
