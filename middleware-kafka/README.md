@@ -368,7 +368,7 @@ LEO 是所有副本都会有的一个offset标记，它指向追加到当前副�
 
 Kafka0.8.*使用了第二种方式。Kafka支持用户通过配置选择这两种方式中的一种，从而根据不同的使用场景选择高可用性还是强一致性。
 
-#### 九 文件存储机制
+### 九 文件存储机制
 
 ~~~java
 [root@iZ2zeeufalzdvyrne9oa4qZ mhxy-wdd-0]# ls /tmp/kafka-logs/mhxy-wdd-0/
@@ -400,73 +400,85 @@ partition还可以细分为segment，这个segment是什么呢？ 假设kafka以
 
 **segment文件命名规则：**partition全局的第一个segment从0开始，后续每个segment文件名为上一个segment文件最后一条消息的offset值。数值最大为64位long大小，19位数字字符长度，没有数字用0填充。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka12.jpg?raw=true)
 
+#### 3 查找方式
 
+以下图为例，读取offset=170418的消息，首先查找segment文件，其中00000000000000000000.index为最开始的文件，第二个文件为00000000000000170410.index（起始偏移为170410+1=170411），而第三个文件为00000000000000239430.index（起始偏移为239430+1=239431），所以这个offset=170418就落到了第二个文件之中。其他后续文件可以依次类推，以其实偏移量命名并排列这些文件，然后根据二分查找法就可以快速定位到具体文件位置。其次根据00000000000000170410.index文件中的[8,1325]定位到00000000000000170410.log文件中的1325的位置进行读取。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka13.jpg?raw=true)
 
+### 十 kafka 分区分配策略
 
+在kafka中每个topic一般都会有很多个partitions。为了提高消息的消费速度，我们可能会启动多个consumer去消费；同时，kafka存在consumer group概念，也就是group.id一样的consumer，这些consumer属于一个consumer group，组内的所有消费者协调在一起来消费订阅主题的所有分区。
 
+当然每个分区只能由通一个消费组内的consumer来消费，那么同一个consumer group里边的consumer事怎么去分配该消费哪个分区的数据，这个就涉及到了kafka内部分区分配策略（Partition Assignment Strategy）。
 
+#### 1. 分区分配策略（Partition Assignment Strategy）
 
+在kafka内部存在两种默认的分区分配策略：Range（默认）和RoundRobin。
 
+通过：partition.assignment.strategy（ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG）指定。
 
+~~~java
+//轮询
+properties.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
+"org.apache.kafka.clients.consumer.RoundRobinAssignor");
+//范围分区
+properties.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
+"org.apache.kafka.clients.consumer.RangeAssignor");
+~~~
 
+#### 2 consumer rebalance
 
+当以下事件发生时，kafka将会进行一次分区分配：
 
+1. 同一个consumer group内新增了消费者
+2. 消费者离开当前所属的consumer group，包括shuts down或crashes
+3. 订阅的主题新增分区（分区数量发生变化）
+4. 消费者主动取消对某个topic的订阅
 
+也就是说，把分区的所有权从一个消费者移到另外一个消费者上，这个kafka consumer的rebalance机制。如何rebalance就涉及导前面说的分区分配策略。
 
+#### 3 两种分区策略
 
+1. Range策略（默认）
 
+2. 1. 0、1、2、3、4、5、6、7、8、9
+   2. c0[0,3]、c1[4,6]、c0[7,9]
+   3. 10(partition num/3(consumer num) =3
 
+3. roundrobin策略
 
+4. 1. 0、1、2、3、4、5、6、7、8、9
+   2. c0,c1,c2
+   3. c0 [0,3,6,9]、c1 [1,4,7]、c2 [2,5,8]
+   4. kafka 的key 为null， 是随机｛一个Metadata的同步周期内，默认是10分钟｝
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka14.jpg?raw=true)
 
+#### 4 谁来执行 Rebalance 以及管理 consumer 的 group 呢？
 
+Kafka提供了一个角色：coordinator来执行对于consumer group 的管理，当 consumer group 的第一个 consumer 启动的时候，它会去和 kafka server 确定谁是它们组的 coordinator。之后该 group 内的所有成员都会和该 coordinator 进行协调通信。
 
+1.  如何确定 coordinator
+   1. consumer group 如何确定自己的 coordinator 是谁呢, 消费者向 kafka 集群中的任意一个 broker 发送一个GroupCoordinatorRequest 请求，服务端会返回一个负载最小的 broker 节 点的 id，并将该 broker 设 置为coordinator。
+2. JoinGroup 的过程
+   1. 在 rebalance 之前，需要保证 coordinator 是已经确定好了的，整个 rebalance 的过程分为两个步骤，Join 和 Syncjoin: 表示加入到 consumer group 中，在这一步中，所有的成员都会向 coordinator 发送 joinGroup 的请求。一旦所有成员都发送了 joinGroup 请求，那么 coordinator 会选择一个 consumer 担任 leader 角色，并把组成员信息和订阅信息发送消费者。
+   2. protocol_metadata: 序列化后的消费者的订阅信息
+   3. leader_id： 消费组中的消费者，coordinator 会选择一个作为 leader，对应的就是 member_id
+   4. member_metadata 对应消费者的订阅信息
+   5. members：consumer group 中全部的消费者的订阅信息
+   6. generation_id： 年代信息，类似于之前讲解 zookeeper 的时候的 epoch 是一样的，对于每一轮 rebalance，generation_id 都会递增。主要用来保护 consumer group。
+   7. 隔离无效的 offset 提交。也就是上一轮的 consumer 成员无法提交 offset 到新的 consumer group 中。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka15.jpg?raw=true)
 
+3. Synchronizing Group State 阶段
+   1. 完成分区分配之后，就进入了 Synchronizing Group State ， 主要逻辑是向GroupCoordinator 发送SyncGroupRequest 请求，并且处理 SyncGroupResponse响应，简单来说，就是 leader 将消费者对应的 partition 分配方案同步给 consumer group 中的所有 consumer。
+   2. 每个消费者都会向 coordinator 发送 syncgroup 请求，不过只有 leader 节点会发送分配方案，其他消费者只是打打酱油而已。当 leader 把方案发给 coordinator 以后，coordinator 会把结果设置到 SyncGroupResponse 中。这样所有成员都知道自己应该消费哪个分区。
+   3. consumer group 的分区分配方案是在客户端执行的！Kafka 将这个权利下放给客户端主要是因为这样做可以有更好的灵活性。
 
+#### 5 自定义消息发送分区
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+**具体代码详见项目**
