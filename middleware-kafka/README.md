@@ -137,6 +137,69 @@ jintian
 
 详细代码见项目中代码
 
+#### 2 发送端的可选配置信息分析
+
+1. acks - 表示 producer 发送消息到 broker 上以后的确认值。有三个可选
+   1. 0：表示 producer 不需要等待 broker 的消息确认。这个选项时延最小但同时风险最大（因为当 server 宕机时，数据将会丢失）。
+   2. 1：表示 producer 只需要获得 kafka 集群中的 leader 节点确认即可，这个选择时延较小同时确保了 leader 节点确认接收成功。
+   3. all(-1)：需要 ISR 中所有的 Replica 给予接收确认，速度最慢，安全性最高，但是由于 ISR 可能会缩小到仅包含一个 Replica，所以设置参数为 all 并不能一定避免数据丢失。
+2. batch.size
+   1. 生产者发送多个消息到 broker 上的同一个分区时，为了减少网络请求带来的性能开销，通过批量的方式来提交消息，可以通过这个参数来控制批量提交的字节数大小，默认大小是 16384byte,也就是 16kb，意味着当一批消息大小达到指定的 batch.size 的时候会统一发送。
+3. linger.ms
+   1. Producer 默认会把两次发送时间间隔内收集到的所有 Requests 进行一次聚合然后再发送，以此提高吞吐量，而 linger.ms 就是为每次发送到 broker 的请求增加一些 delay，以此来聚合更多的 Message 请求。 这个有点想 TCP 里面的Nagle 算法，在 TCP 协议的传输中，为了减少大量小数据包的发送，采用了Nagle 算法，也就是基于小包的等-停协议。
+   2. batch.size 和 linger.ms 这两个参数是 kafka 性能优化的关键参数，很多同学会发现 batch.size 和 linger.ms 这两者的作用是一样的，如果两个都配置了，那么怎么工作的呢？实际上，当二者都配置的时候，只要满足其中一个要求，就会发送请求到 broker 上。
+      4.max.request.size
+4. max.request.size
+   1. 设置请求的数据的最大字节数，为了防止发生较大的数据包影响到吞吐量，默认值为 1MB。
+
+#### 3 消费端的可选配置分析
+
+1. enable.auto.commit
+   1. 消费者消费消息以后自动提交，只有当消息提交以后，该消息才不会被再次接收到，还可以配合 auto.commit.interval.ms 控制自动提交的频率。
+   2. 当然，我们也可以通过 consumer.commitSync()的方式实现手动提交
+2. auto.offset.reset
+   1. 这个参数是针对新的 groupid 中的消费者而言的，当有新 groupid 的消费者来消费指定的 topic 时，对于该参数的配置，会有不同的语义。
+   2. auto.offset.reset=latest 情况下，新的消费者将会从其他消费者最后消费的offset 处开始消费 Topic 下的消息。
+   3. auto.offset.reset= earliest 情况下，新的消费者会从该 topic 最早的消息开始消费
+   4. auto.offset.reset=none 情况下，新的消费者加入以后，由于之前不存在offset，则会直接抛出异常。
+3. max.poll.records
+   1. 此设置限制每次调用 poll 返回的消息数，这样可以更容易的预测每次 poll 间隔要处理的最大值。通过调整此值，可以减少 poll 间隔。
+
+#### 4 提交方式
+
+1. 自动提交
+
+~~~java
+//是否自动提交消息：offset
+properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,"true");
+//自动提交的时间间隔
+properties.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG,"1000");
+~~~
+
+2. 手动提交
+
+~~~java
+//手动异步提交
+consumer.commitAsync();
+//手动同步提交
+consumer.commitSync();
+~~~
+
+**代码使用详见项目**
+
+#### 5 指定消费某个分区的消息
+
+~~~java
+TopicPartition p0=new TopicPartition(KafkaProperties.TOPIC,0);
+this.consumer.assign(Arrays.asList(p0));
+~~~
+
+### 四 实现细节及高吞吐量的因素
+
+
+
+
+
 
 
 
