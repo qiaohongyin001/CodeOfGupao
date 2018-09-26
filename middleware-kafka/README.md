@@ -273,13 +273,45 @@ kafka有两种“保留策略”：
 
 在很多场景中，消息的key与value的值之间对应关系是不断变化的，就像数据库中的数据会不断被修改一样，消费者只关心key对应的最新的value。我们可以开日志压缩功能，kafka定期将相同key的消息进行合并，只保留最新的value值。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-kafka/img/kafka9.jpg?raw=true)
 
+### 七 消息可靠性机制
 
+#### 1 消息可靠性机制
 
+生产者发送消息到broker，有三种确认方式（request.required.acks）
 
+1. acks=0
 
+2. 1. producer不会等待broker（leader）发送ack。因为发送消息网络超时或broker crash（1.partition的leader还没有commit消息。2.leader与follower数据不同步），既有可能丢失也可能会重发。
 
+3. acks = 1
 
+4. 1. 当leader接收到消息之后发送ack，丢会重发，丢的概率很小
+
+5. acks = -1
+
+6. 1. 当所有的follower都同步消息成功后发送ack. 丢失消息可能性比较低。
+
+#### 2 消息存储可靠性
+
+1. 每一条消息被发送到broker中，会根据partition规则选择被存储到哪一个partition。
+
+2. 1. 如果partition规则设置的合理，所有消息可以均匀分布到不同的partition里，这样就实现了水平扩展。
+
+3. 在创建topic时可以指定这个topic对应的partition的数量。在发送一条消息时，可以指定这条消息的key，producer根据这个key和partition机制来判断这个消息发送到哪个partition。
+
+4. kafka的高可靠性的保障来自于另一个叫副本（replication）策略，通过设置副本的相关参数，可以使kafka在性能和可靠性之间做不同的切换。
+
+#### 3 高可靠性副本
+
+~~~java
+//--replication-factor 表示的副本数：1标识默认没有副本
+sh kafka-topics.sh --create --zookeeper 192.168.11.140:2181 
+--replication-factor 2 --partitions 3 --topic sixsix
+~~~
+
+#### 4 副本机制
 
 
 
