@@ -802,47 +802,93 @@ master 数据库不需要做任何改变。
 
 1. master不要动，只需要更改slave就可以了
 2. 修改11.140和11.141的redis.conf文件
-3. 增加salveof master.ip master.port
+3. 增加slaveof master.ip master.port
    1. slaveof 192.168.11.138 6379
 
 4. 启动salve服务
-5. 访问salve的redis客户端，输入 INFO replication
+5. 访问slave的redis客户端，输入 INFO replication
 6. 通过在master机器上输入命令，比如set foo bar 、 在slave服务器就能看到该值已经同步过来了
 
 ##### 1.2 实现原理
 
-- 全量复制
+- **全量复制**
 
 Redis全量复制一般发生在Slave初始化阶段，这时Slave需要将Master上的所有数据都复制一份。具体步骤：
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/redis-2.jpg?raw=true)
 
+完成上面几个步骤后就完成了slave服务器数据初始化的所有操作，savle服务器此时可以接收来自用户的读请求。
 
+master/slave 复制策略是采用乐观复制，也就是说可以容忍在一定时间内master/slave数据的内容是不同的，但是两者的数据会最终同步。具体来说，redis的主从同步过程本身是异步的，意味着master执行完客户端请求的命令后会立即返回结果给客户端，然后异步的方式把命令同步给slave。
 
+这一特征保证启用master/slave后，master的性能不会受到影响。
 
+但是另一方面，如果在这个数据不一致的窗口期间，master/slave因为网络问题断开连接，而这个时候，master
+是无法得知某个命令最终同步给了多少个slave数据库。不过redis提供了一个配置项来限制只有数据至少同步给多
+少个slave的时候，master才是可写的:
 
+`min-slaves-to-write 3` 表示只有当3个或以上的slave连接到master，master才是可写的。
 
-1. slave第一次或者重连到master上以后，会向master发送一个SYNC命令
+`min-slaves-max-lag 10` 表示允许slave最长失去连接的时间，如果10秒还没收到slave的响应，则master认为该 slave 已经断开。
 
-2. master收到SYNC的时候，会做两件事
+- **增量复制** —— PSYNC master run id. offset
 
-3. 1. 执行bgsave（rdb的快照文件）
-   2. master会把新收到的命令存入到缓存区
+从redis 2.8开始，就支持主从复制的断点续传，如果主从复制过程中，网络连接断掉了，那么可以接着上次复制的 地方，继续复制下去，而不是从头开始复制一份 
 
-缺点：没有办法对master进行动态选举
+master node会在内存中创建一个backlog，master和slave都会保存一个replica offset还有一个master id，offset 就是保存在backlog中的。如果master和slave网络连接断掉了，slave会让master从上次的replica offset开始继续复制，但是如果没有找到对应的offset，那么就会执行一次全量同步 
 
-##### 1.2 复制的方式
+- **无硬盘复制** —— repl-diskless-sync no
 
-1. 基于rdb文件的复制（第一次链接或者重连的时候）
+前面我们说过，Redis复制的工作原理基于RDB方式的持久化实现的，也就是master在后台保存RDB快照，slave接收到rdb文件并载入，但是这种方式会存在一些问题。
 
-2. 无硬盘复制
+1. 当master禁用RDB时，如果执行了复制初始化操作，Redis依然会生成RDB快照，当master下次启动时执行该 RDB文件的恢复，但是因为复制发生的时间点不确定，所以恢复的数据可能是任何时间点的。就会造成数据出现问题。 
 
-3. 1. repl-diskless-sync no
+2. 当硬盘性能比较慢的情况下(网络硬盘)，那初始化复制过程会对性能产生影响 
 
-4. 增量复制
+因此2.8.18以后的版本，Redis引入了无硬盘复制选项，可以不需要通过RDB文件去同步，直接发送数据，通过以下配置来开启该功能：repl-diskless-sync yes。
 
-5. 1. PSYNC master run id. offset
+master 会在内存中直接创建rdb，然后发送给 slave，不会在自己本地落地磁盘了。
 
 #### 2 哨兵机制
+
+在前面讲的master/slave模式，在一个典型的一主多从的系统中，slave在整个体系中起到了数据冗余备份和读写
+分离的作用。当master遇到异常终端后，需要从slave中选举一个新的master继续对外提供服务，这种机制在前面
+提到过N次，比如在zk中通过leader选举、kafka中可以基于zk的节点实现master选举。所以在redis中也需要一种
+机制去实现master的决策，redis并没有提供自动master选举功能，而是需要借助一个哨兵来进行监控。
+
+##### 2.1 什么是哨兵
+
+顾名思义，哨兵的作用就是监控Redis系统的运行状况，它的功能包括两个：
+
+1. 监控master和slave是否正常运行
+2. master出现故障时自动将slave数据库升级为master
+
+哨兵是一个独立的进程，使用哨兵后的架构图：
+
+![](1)
+
+为了解决master选举问题，又引出了一个单点问题，也就是哨兵的可用性如何解决，在一个一主多从的Redis系统
+中，可以使用多个哨兵进行监控任务以保证系统足够稳定。此时哨兵不仅会监控master和slave，同时还会互相监
+控；这种方式称为哨兵集群，哨兵集群需要解决故障发现、和 master 决策的协商机制问题。
+
+![](2)
+
+sentinel之间的相互感知 sentinel节点之间会因为共同监视同一个master从而产生了关联，一个新加入的sentinel节点需要和其他监视相同 
+
+master节点的sentinel相互感知，首先
+ \1. 需要相互感知的sentinel都向他们共同监视的master节点订阅channel:sentinel:hello 
+
+\2. 新加入的sentinel节点向这个channel发布一条消息，包含自己本身的信息，这样订阅了这个channel的sentinel 就可以发现这个新的sentinel 
+
+\3. 新加入得sentinel和其他sentinel节点建立长连接
+
+
+
+
+
+
+
+
 
 1. 作用
 
