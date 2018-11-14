@@ -865,45 +865,186 @@ master 会在内存中直接创建rdb，然后发送给 slave，不会在自己�
 
 哨兵是一个独立的进程，使用哨兵后的架构图：
 
-![](1)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/sentinel-1.jpg?raw=true)
 
 为了解决master选举问题，又引出了一个单点问题，也就是哨兵的可用性如何解决，在一个一主多从的Redis系统
 中，可以使用多个哨兵进行监控任务以保证系统足够稳定。此时哨兵不仅会监控master和slave，同时还会互相监
 控；这种方式称为哨兵集群，哨兵集群需要解决故障发现、和 master 决策的协商机制问题。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/sentinel-2.jpg?raw=true)
+
+sentinel之间的相互感知，sentinel节点之间会因为共同监视同一个master从而产生了关联，一个新加入的sentinel节点需要和其他监视相同master节点的sentinel相互感知，首先：
+
+1. 需要相互感知的sentinel都向他们共同监视的master节点订阅channel:sentinel:hello 
+
+2. 新加入的sentinel节点向这个channel发布一条消息，包含自己本身的信息，这样订阅了这个channel的sentinel 就可以发现这个新的sentinel 
+
+3. 新加入得sentinel和其他sentinel节点建立长连接
+
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/sentinel-3.jpg?raw=true)
+
+##### 2.2 master的故障发现
+
+sentinel 节点会定期向 master 节点发送心跳包来判断存活状态，一旦 master 节点没有正确响应，sentinel 会把 master 设置为“主观不可用状态”，然后它会把“主观不可用”发送给其他所有的 sentinel 节点去确认，当确认的 sentinel 节点数大于>quorum时，则会认为master是“客观不可用”，接着就开始进入选举新的master流程；
+
+但是 这里又会遇到一个问题，就是sentinel中，本身是一个集群，如果多个节点同时发现master节点达到客观不可用状态，那谁来决策选择哪个节点作为maste呢？这个时候就需要从sentinel集群中选择一个leader来做决策。而这里用到了一致性算法Raft算法、它和Paxos算法类似，都是分布式一致性算法。但是它比Paxos算法要更容易理解；Raft和Paxos算法一样，也是基于投票算法，只要保证过半数节点通过提议即可; 
+
+动画演示地址:http://thesecretlivesofdata.com/raft/ 
+
+##### 2.3 配置实现
+
+1. cp ../redis-3.2.8/sentinel.conf sentinel.conf 复制哨兵配置文件到redis中
+2. 修改配置文件 port
+3. 修改监控master节点配置：sentinel monitor mymaster 192.168.11.138 6379 2
+4. 多少秒之内mymaster没有响应就认为down掉：sentinel down-after-milliseconds mymaster 30000
+5. 修改配置文件后，./redis-sentinel ../sentinel.conf
+
+通过在这个配置的基础上增加哨兵机制。在其中任意一台服务器上创建一个sentinel.conf文件。
+
+文件内容：`sentinel monitor name ip port quorum`
+
+其中name表示要监控的master的名字，这个名字是自己定义。 ip和port表示master的ip和端口号。 最后一个1表示最低通过票数，也就是说至少需要几个哨兵节点统一才可以。
+
+port 6040
+
+sentinel monitor mymaster 192.168.11.131 6379 1 
+
+sentinel down-after-milliseconds mymaster 5000 --表示如果5s内mymaster没响应，就认为SDOWN 
+
+sentinel failover-timeout mymaster 15000 --表示如果15秒后,mysater仍没活过来，则启动failover，从剩下的 slave中选一个升级为master 
+
+两种方式启动哨兵：
+
+1. redis-sentinel sentinel.conf
+2.  redis-server /path/to/sentinel.conf --sentinel 
+
+哨兵监控一个系统时，只需要配置监控master即可，哨兵会自动发现所有slave；
+
+这时候，我们把master关闭，等待指定时间后(默认是30秒)，会自动进行切换，会输出如下消息：
+
+~~~txt
++sdown表示哨兵主管认为master已经停止服务了，+odown表示哨兵客观认为master停止服务了。关于主观和客 观，后面会给大家讲解。接着哨兵开始进行故障恢复，挑选一个slave升级为master 
+
++try-failover表示哨兵开始进行故障恢复 +failover-end 表示哨兵完成故障恢复 
+
++slave表示列出新的master和slave服务器，我们仍然可以看到已经停掉的master，哨兵并没有清楚已停止的服务 的实例，这是因为已经停止的服务器有可能会在某个时间进行恢复，恢复以后会以slave角色加入到整个集群中。
+~~~
+
+#### 3 集群 —— Redis-Cluster（redis3.0以后的功能）
+
+即使是使用哨兵，此时的Redis集群的每个数据库依然存有集群中的所有数据，从而导致集群的总数据存储量受限
+于可用存储内存最小的节点，形成了木桶效应。而因为Redis是基于内存存储的，所以这一个问题在redis中就显得
+尤为突出了。
+
+在redis3.0之前，我们是通过在客户端去做的分片，通过hash环的方式对key进行分片存储。分片虽然能够解决各
+个节点的存储压力，但是导致维护成本高、增加、移除节点比较繁琐。因此在redis3.0以后的版本最大的一个好处
+就是支持集群功能，集群的特点在于拥有和单机实例一样的性能，同时在网络分区以后能够提供一定的可访问性以
+及对主数据库故障恢复的支持。
+
+哨兵和集群是两个独立的功能，当不需要对数据进行分片使用哨兵就够了，如果要进行水平扩容，集群是一个比较
+好的方式。
+
+##### 3.1 拓扑结构
+
+一个Redis Cluster由多个Redis节点构成。不同节点组服务的数据没有交集，也就是每一个节点组对应数据
+sharding的一个分片。节点组内部分为主备两类节点，对应master和slave节点。两者数据准实时一致，通过异步
+化的主备复制机制来保证。一个节点组有且只有一个master节点，同时可以有0到多个slave节点，在这个节点组中只有master节点对用户提供些服务，读服务可以由master或者slave提供。
+
+redis-cluster是基于gossip协议实现的无中心化节点的集群，因为去中心化的架构不存在统一的配置中心，各个节
+点对整个集群状态的认知来自于节点之间的信息交互。在Redis Cluster，这个信息交互是通过Redis Cluster Bus来完成的。
+
+##### 3.2 Redis的数据分区
+
+分布式数据库首要解决把整个数据集按照分区规则映射到多个节点的问题，即把数据集划分到多个节点上，每个节点负责整个数据的一个子集，Redis Cluster采用哈希分区规则，采用虚拟槽分区。 
+
+虚拟槽分区巧妙地使用了哈希空间，使用分散度良好的哈希函数把所有的数据映射到一个固定范围内的整数集合，
+整数定义为槽(slot)。比如Redis Cluster槽的范围是0 ~ 16383。槽是集群内数据管理和迁移的基本单位。采用
+大范围的槽的主要目的是为了方便数据的拆分和集群的扩展，每个节点负责一定数量的槽。
+
+计算公式:slot = CRC16(key)%16383。每一个节点负责维护一部分槽以及槽所映射的键值数据。
+
+![](1)
+
+##### 3.3 HashTags
+
+通过分片手段，可以将数据合理的划分到不同的节点上，这本来是一件好事。但是有的时候，我们希望对相关联的
+业务以原子方式进行操作。举个简单的例子：
+
+我们在单节点上执行MSET , 它是一个原子性的操作，所有给定的key会在同一时间内被设置，不可能出现某些指定
+的key被更新另一些指定的key没有改变的情况。但是在集群环境下，我们仍然可以执行MSET命令，但它的操作不
+在是原子操作，会存在某些指定的key被更新，而另外一些指定的key没有改变，原因是多个key可能会被分配到不
+同的机器上。
+
+所以，这里就会存在一个矛盾点，及要求key尽可能的分散在不同机器，又要求某些相关联的key分配到相同机器。这个也是在面试的时候会容易被问到的内容。怎么解决呢?
+
+从前面的分析中我们了解到，分片其实就是一个hash的过程，对key做hash取模然后划分到不同的机器上。所以为了解决这个问题，我们需要考虑如何让相关联的key得到的hash值都相同呢?如果key全部相同是不现实的，所以
+怎么解决呢？在redis中引入了HashTag的概念，可以使得数据分布算法可以根据key的某一个部分进行计算，然后
+让相关的key落到同一个数据分片。
+
+举个简单的例子：加入对于用户的信息进行存储， user:user1:id、user:user1:name/ 那么通过hashtag的方式，
+user:{user1}:id、user:{user1}.name；表示当一个key包含 {} 的时候，就不对整个key做hash，而仅对 {} 包括的字符串做hash。
+
+##### 3.4 重定向客户端
+
+Redis Cluster并不会代理查询，那么如果客户端访问了一个key并不存在的节点，这个节点是怎么处理的呢?比如
+我想获取key为msg的值，msg计算出来的槽编号为254，当前节点正好不负责编号为254的槽，那么就会返回客户
+端下面信息：`-MOVED 254 127.0.0.1:6381`
+
+表示客户端想要的254槽由运行在IP为127.0.0.1，端口为6381的Master实例服务。如果根据key计算得出的槽恰好 由当前节点负责，则当期节点会立即返回结果。
+
+##### 3.5 分片迁移
+
+在一个稳定的Redis cluster下，每一个slot对应的节点是确定的，但是在某些情况下，节点和分片对应的关系会发
+生变更。
+
+1. 新加入master节点
+2. 某个节点宕机
+
+也就是说当动态添加或减少node节点时，需要将16384个槽做个再分配，槽中的键值也要迁移。当然，这一过程，在目前实现中，还处于半自动状态，需要人工介入。
+
+新增一个主节点
+
+新增一个节点D，redis cluster的这种做法是从各个节点的前面各拿取一部分slot到D上。大致就会变成这样:
+
+节点A覆盖1365-5460
+节点B覆盖6827-10922
+节点C覆盖12288-16383
+节点D覆盖0-1364,5461-6826,10923-12287	
+
+删除一个主节点
+
+先将节点的数据移动到其他节点上，然后才能执行删除
+
+##### 3.6 槽迁移的过程
+
+槽迁移的过程中有一个不稳定状态，这个不稳定状态会有一些规则，这些规则定义客户端的行为，从而使得Redis
+Cluster不必宕机的情况下可以执行槽的迁移。下面这张图描述了我们迁移编号为1、2、3的槽的过程中，他们在
+MasterA节点和MasterB节点中的状态。
+
 ![](2)
 
-sentinel之间的相互感知 sentinel节点之间会因为共同监视同一个master从而产生了关联，一个新加入的sentinel节点需要和其他监视相同 
+**简单的工作流程：**
 
-master节点的sentinel相互感知，首先
- \1. 需要相互感知的sentinel都向他们共同监视的master节点订阅channel:sentinel:hello 
+1. 向MasterB发送状态变更命令，把Master B对应的slot状态设置为IMPORTING
+2. 向MasterA发送状态变更命令，将Master对应的slot状态设置为MIGRATING
 
-\2. 新加入的sentinel节点向这个channel发布一条消息，包含自己本身的信息，这样订阅了这个channel的sentinel 就可以发现这个新的sentinel 
+**MIGRATING状态：**
 
-\3. 新加入得sentinel和其他sentinel节点建立长连接
+1. 如果客户端访问的Key还没有迁移出去，则正常处理这个key
+2. 如果key已经迁移或者根本就不存在这个key，则回复客户端ASK信息让它跳转到MasterB去执行
 
+**IMPORTING状态：**
 
+当MasterB的状态设置为IMPORTING后，表示对应的slot正在向MasterB迁入，即使Master仍然能对外提供该slot 的读写服务，但和通常状态下也是有区别的。
 
+当来自客户端的正常访问不是从ASK跳转过来的，说明客户端还不知道迁移正在进行，很有可能操作了一个目前
+还没迁移完成的并且还存在于MasterA上的key，如果此时这个key在A上已经被修改了，那么B和A的修改则会发生
+冲突。所以对于MasterB上的slot上的所有非ASK跳转过来的操作，MasterB都不会处理，而是通过MOVED命令让客户端跳转到MasterA上去执行。
 
+这样的状态控制保证了同一个key在迁移之前总是在源节点上执行，迁移后总是在目标节点上执行，防止出现两边
+同时写导致的冲突问题。而且迁移过程中新增的key一定会在目标节点上执行，源节点也不会新增key，是的整个迁移过程既能对外正常提供服务，又能在一定的时间点完成slot的迁移。
 
-
-
-
-
-1. 作用
-
-2. 1. 监控master和slave是否正常运行
-   2. 如果master出现故障，那么会把其中一台slave数据升级为master
-
-3. 配置过程
-
-4. 1. cp ../redis-3.2.8/sentinel.conf sentinel.conf 复制哨兵配置文件到redis中
-   2. 修改配置文件 port
-   3. 修改监控master节点配置：sentinel monitor mymaster 192.168.11.138 6379 2
-   4. 多少秒之内mymaster没有响应就认为down掉：sentinel down-after-milliseconds mymaster 30000
-   5. 修改配置文件后，./redis-sentinel ../sentinel.conf
-
-#### 3 集群（redis3.0以后的功能）
+##### 3.7 老的笔记
 
 根据key的hash值取模服务器的数量 。
 
