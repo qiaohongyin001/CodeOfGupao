@@ -18,7 +18,6 @@ public class Test {
 
                     RedisDistributeLock lock = new RedisDistributeLock("lock",10000);
 
-
                     String value = lock.tryLock();
                     System.out.println(Thread.currentThread().getName()+"获得锁的值：" + value);
                     Thread.sleep(10);

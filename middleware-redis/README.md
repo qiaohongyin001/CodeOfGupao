@@ -963,7 +963,7 @@ redis-cluster是基于gossip协议实现的无中心化节点的集群，因为�
 
 计算公式:slot = CRC16(key)%16383。每一个节点负责维护一部分槽以及槽所映射的键值数据。
 
-![](1)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/cluster-1.jpg?raw=true)
 
 ##### 3.3 HashTags
 
@@ -1021,7 +1021,7 @@ Redis Cluster并不会代理查询，那么如果客户端访问了一个key并�
 Cluster不必宕机的情况下可以执行槽的迁移。下面这张图描述了我们迁移编号为1、2、3的槽的过程中，他们在
 MasterA节点和MasterB节点中的状态。
 
-![](2)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-redis/img/cluster-2.jpg?raw=true)
 
 **简单的工作流程：**
 
