@@ -43,6 +43,8 @@ delete（T）
 
 ### 实现思路
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-mongodb/img/mongo-3-1.jpg?raw=true)
+
 入口类，所有dao都继承它
 
 abstract BaseDaoSupport<T,PK> T,PK(解决强制转型的问题)
