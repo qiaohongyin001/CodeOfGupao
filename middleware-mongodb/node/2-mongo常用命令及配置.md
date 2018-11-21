@@ -2,7 +2,12 @@
 
 ### 2.1 安装 MongoDB 数据库(Windows 和 Linux 环境) 
 
+官方文档：https://docs.mongodb.com
+
 打开官网：https://www.mongodb.com/download-center?jmp=nav#community
+
+数据客户端使用老师分享的包就可以：robomongo-0.9.0.zip
+
 选择 Community Server 4.0.1 的版本。
 
 - 下载安装包
@@ -146,7 +151,9 @@ switched to db woplus
 
 ### 2.2 MongoDB常用命令
 
-#### 2.2.1 创建数据库
+**记住用help**
+
+#### 2.2.1 创建数据库db
 
 ~~~mongodb
 use testdb

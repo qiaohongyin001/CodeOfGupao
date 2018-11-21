@@ -18,7 +18,7 @@ NoSQL，指的是非关系型的数据库。NoSQL 有时也称作 Not Only SQL �
 1. 默认支持分布式（内置分布式解决方案）
 2. 高性能，高可用性和可伸缩性
 
-在Nosql界，MongoDB是一个最想关系型数据库的非关系型数据库
+在Nosql界，MongoDB是一个最像关系型数据库的非关系型数据库
 
 ### 3 关系型数据库 PK 非关系型数据库
 
@@ -138,6 +138,12 @@ MongoDB 的集群部署方案中有三类角色:实际数据存储结点、配�
 
 **路由结点：路由角色的结点在分片的情况下起到负载均衡的作用。**
 
+微观的维度（你看不到的一个维度）
+chunk（块）-->shard(片) --> Replica Set(副本) --> Data(数据)
+
+宏观的维度（你能看到的）
+Field（字段） -->  Document(文档) --> Collection(集合) -->  DataBase（数据库）
+
 ### 8 MongoDB 应用场景？
 
 #### 8.1 适用范围：
@@ -158,11 +164,11 @@ MongoDB 4.0 支持事务操作（分布式事务的一种解决方案）
 
 
 
-mongo：客户端
+mongo.exe：客户端
 
-mongos：路由器
+mongos.exe：路由器
 
-mongod：数据存储
+mongod.exe：数据存储
 
 
 
@@ -195,42 +201,3 @@ M-A-S
 类似于Map（拆分）Reduce（归并）（Hadoop里面）
 
 怎么切，那是策略
-
-
-
-微观的维度（你看不到的一个维度）
-chunk（块）-->shard(片) --> Replica Set(副本) --> Data(数据)
-
-宏观的维度（你能看到的）
-Field（字段） -->  Document(文档) --> Collection(集合) -->  DataBase（数据库）
-
-
-
-## 二、MongoDB的常用命令及配置
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## 三、手写基于MongoDB的ORM框架
-
-
-
-## 四、基于MongoDB实现网络云盘实战
-
-
-
-## 五、MongoDB 4.0新特性
-
-
-
