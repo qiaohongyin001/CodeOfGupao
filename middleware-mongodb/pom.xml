@@ -16,6 +16,7 @@
     <modules>
         <module>mongodb-demo</module>
         <module>mongodb-orm</module>
+        <module>mongodb-explorer</module>
     </modules>
 
     <properties>
