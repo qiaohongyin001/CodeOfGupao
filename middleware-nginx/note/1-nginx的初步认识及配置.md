@@ -263,7 +263,7 @@ location ~* \.(gif|....)${
 
 ### 四 Nginx模块
 
-反向代理、email、nginx core。。。
+反向代理、email、nginx core这些为nginx内置模块
 
 #### 1 模块分类
 
@@ -275,16 +275,19 @@ location ~* \.(gif|....)${
 
 ~~~config
 server{ 
-	listen port server_name
+	listen port 
+	server_name
   	root ... 
 }
 ~~~
 
 location 实现uri到文件系统路径的映射
 
+error_page 定位到错误的页面
+
 ##### 1.2 ngx_http_access_module
 
-实现基于ip的访问控制功能
+实现基于ip的访问控制功能，在location中配置
 
 1. allow address | CIDR | unix: | all;
 2. deny address | CIDR | unix: | all;
@@ -298,6 +301,7 @@ location 实现uri到文件系统路径的映射
 2. 不能直接make install
 
 ~~~config
+./nginx -V
 configure --prefix=/data/program/nginx
 ~~~
 
@@ -308,17 +312,19 @@ configure --prefix=/data/program/nginx
 
 ./configure --prefix=/data/program/nginx --with-http_stub_status_module --with-
 http_random_index_module
+需要make
 
 cp objs/nginx $nginx_home/sbin/nginx
  
 ~~~
 
-##### 1.4 http_stub_status_module
+###### 1.3.1 http_stub_status_module
 
 ~~~config
 location /status {
 	stub_status;
 }
+配置后打开网页链接就可以看到相关统计值：http://localhost/status
 ~~~
 
 Active connections：当前状态，活动状态的连接数
@@ -335,7 +341,7 @@ Writing：当前状态，正在向客户端发送响应报文过程中的连接�
 
 Waiting：当前状态，正在等待客户端发出请求的空闲连接数
 
-##### 1.5 http_random_index_module
+###### 1.3.2 http_random_index_module
 
 www.gupaoedu.com 
 
@@ -354,3 +360,4 @@ location / {
 ~~~
 
 2. 在html目录下创建多个html页面
+
