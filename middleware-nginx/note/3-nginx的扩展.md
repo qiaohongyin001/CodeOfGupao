@@ -1,6 +1,6 @@
 
 
-## nginx的扩展
+### nginx的扩展
 
 ### 一 进程模型
 
@@ -203,11 +203,158 @@ fi
    2. chknginxservice #
    3. 引用 VRRP 脚本，即在 vrrp_script 部分指定的名字。定期运行它们来改变优先级，并最终引发主备切换。
 
-![]()
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-nginx/img/keepalived-1.jpg?raw=true)
 
+### 三 Openresty
 
+OpenResty 是一个通过 Lua 扩展 Nginx 实现的可伸缩的 Web 平台，内部集成了大量精良的 Lua 库、第三方模块以及大多数的依赖项。用于方便地搭建能够处理超高并发、扩展性极高的动态 Web 应用、Web 服务和动态网关。
 
+#### 1 安装
 
+1. 下载安装包：https://openresty.org/cn/download.html
+2. 安装软件包
+   1. tar -zxvf openresty-1.13.6.2.tar.gz
+   2. cd openrestry-1.13.6.2
+   3. ./configure [默认会安装在/usr/local/openresty 目录] --prefix= 指定路径
+   4. make && make install
+
+3. 可能存在的错误，第三方依赖库没有安装的情况下会报错：
+   1. yum install readline-devel / pcre-devel /openssl-devel
+
+4. 安装过程和 Nginx 是一样的，因为他是基于 Nginx 做的扩展
+
+#### 2 HelloWorld
+
+开始第一个程序，HelloWorld
+
+cd /data/program/openresty/nginx/conf
+
+~~~nginx
+location / {
+   default_type  text/html;
+   content_by_lua_block {
+      ngx.say("helloworld");
+   }
+}
+~~~
+
+在 sbin 目录下执行.nginx 命令就可以运行，看到 helloworld
+
+#### 3 简历工作空间
+
+##### 3.1 创建目录
+
+或者为了不影响默认的安装目录，我们可以创建一个独立的空间来练习，先到在安装目录下创建 demo 目录,安装目录为/data/program/openresty/demo
+
+mkdir demo
+
+然后在 demo 目录下创建两个子目录，一个是 logs 、一个是 conf
+
+##### 3.2 创建配置文件
+
+~~~nginx
+worker_processes 1;
+error_log logs/error.log;
+events {
+        worker_connections 1024;
+http {
+    server {
+    listen 8888;
+    	location / {
+            default_type text/html;
+            content_by_lua_block {
+                    ngx.say("Hello world")
+            }
+     	}
+    }
+}
+~~~
+
+执行:./nginx -p /data/program/openresty/demo 【-p 主要是指明 nginx 启动时的配置目录】
+
+#### 总结
+
+我们刚刚通过一个 helloworld 的简单案例来演示了 nginx+lua 的功能，其中用到了 ngx.say 这个表达式，通过在 content_by_lua_block 这个片段中进行访问；这个表达式属于 ngxlua 模块提供的 api， 用于向客户端输出一个内容。
+
+### 四 库文件的使用
+
+通过上面的案例，我们基本上对 openresty 有了一个更深的认识，其中我们用到了自定义的 lua 模块。实际上 openresty 提供了很丰富的模块。让我们在实现某些场景的时候更加方便。可以在 /openresty/lualib 目录下看到;比如在 resty 目录下可以看到 redis.lua、mysql.lua 这样的操作 redis 和操作数据库的模块。
+
+#### 1 使用 redis 模块连接 redis
+
+~~~nginx
+worker_processes 1;
+error_log       logs/error.log;
+events {
+  worker_connections 1024;
+}
+http {
+	lua_package_path '$prefix/lualib/?.lua;;'; #添加”;;”表示默认路径下的 lualib
+	lua_package_cpath '$prefix/lualib/?.so;;';
+   	server {
+    	location /demo {
+			content_by_lua_block {
+				local redisModule=require "resty.redis";	
+				local redis=redisModule:new(); # lua 的对象实例
+                redis:set_timeout(1000);
+				ngx.say("=======begin connect redis server");			   
+                localok,err=redis:connect("127.0.0.1",6379); #连接redis
+                if not ok then
+					ngx.say("==========connection redis failed,error message:",err);
+				end
+					ngx.say("======begin set key and value");
+                ok,err=redis:set("hello","world");
+				if not ok then
+					ngx.say("set value failed");
+					return; 
+                end
+				ngx.say("===========set value result:",ok); 
+                redis:close();
+            } 
+        }
+    } 
+}
+~~~
+
+#### 2 演示效果
+
+到 nginx 路径下执行 ./nginx -p /data/program/openresty/redisdemo 在浏览器中输入:http://192.168.11.160/demo 即可看到输出内容并且连接到 redis 服务器上以后，可以看到 redis 上的结果
+
+redis 的所有命令操作，在 lua 中都有提供相应的操作 .比如 redis:get(“key”)、redis:set()等
+
+### 五 网关
+
+#### 1 概念
+
+从一个房间到另一个房间，必须必须要经过一扇门，同样，从一个网络向另一个网络发送信息，必须经过一道“关口”，这道关口就是网关。顾名思义，网关(Gateway)就是一个网络连接到另一个网络的“关口”。
+
+那什么是 api 网关呢？
+
+在微服务流行起来之前，api 网关就一直存在，最主要的应用场景就是开放平台，也就是 open api; 这种场景大家接触的一定比较多，比如阿里的开放平台；当微服务流行起来以后，api 网关就成了上层应用集成的标配组件。
+
+#### 2 为什么需要网关
+
+##### 2.1 对微服务组件地址进行统一抽象
+
+API 网关意味着你要把 API 网关放到你的微服务的最前端，并且要让 API 网关变成由应用所发起的每个请求的入口。这样就可以简化客户端实现和微服务应用程序之间的沟通方式。
+
+##### 2.2 Backends for frontends
+
+当服务越来越多以后，我们需要考虑一个问题，就是对某些服务进行安全校验以及用户身份校验。甚至包括对流量进行控制。 我们会对需要做流控、需要做身份认证的服务单独提供认证功能，但是服务越来越多以后，会发现很多组件的校验是重复的。这些东西很明显不是每个微服务组件需要去关心的事情。微服务组件只需要负责接收请求以及返回响应即可。可以把身份认证、流控都放在 API 网关层进行控制。
+
+##### 2.3 灰度发布
+
+在单一架构中，随着代码量和业务量不断扩大，版本迭代会逐步变成一个很困难的事情，哪怕是一点小的修改，都必须要对整个应用重新部署。 但是在微服务中， 各个模块是是一个独立运行的组件，版本迭代会很方便，影响面很小。 同时，为服务化的组件节点，对于我们去实现灰度发布(金丝雀发布:将一部分流量引导到新的版本)来说，也会变的很简单；所以通过 API 网关，可以对指定调用的微服务版本，通过版本来隔离。
+
+#### 六 OpenResty 实现 API 网关限流及登录授权
+
+#### 1 OpenResty 为什么能做网关?
+
+前面我们了解到了网关的作用，通过网关，可以对 api 访问的前置操作进行统一的管理，比如鉴权、限流、负载均衡、日志收集、请求分片等。所以 API 网关的核心是所有客户端对接后端服务之前，都需要统一接入网关，通过网关层将所有非业务功能进行处理。
+
+**OpenResty 为什么能实现网关呢？**
+
+OpenResty 有一个非常重要的因素是，对于每一个请求，Openresty 会把请求分为不同阶段，从而可以让第三方模块通过挂载行为来实现不同阶段的自定义行为。而这样的机制能够让我们非常方便的设计 api 网关。
 
 
 
