@@ -346,7 +346,7 @@ API 网关意味着你要把 API 网关放到你的微服务的最前端，并�
 
 在单一架构中，随着代码量和业务量不断扩大，版本迭代会逐步变成一个很困难的事情，哪怕是一点小的修改，都必须要对整个应用重新部署。 但是在微服务中， 各个模块是是一个独立运行的组件，版本迭代会很方便，影响面很小。 同时，为服务化的组件节点，对于我们去实现灰度发布(金丝雀发布:将一部分流量引导到新的版本)来说，也会变的很简单；所以通过 API 网关，可以对指定调用的微服务版本，通过版本来隔离。
 
-#### 六 OpenResty 实现 API 网关限流及登录授权
+### 六 OpenResty 实现 API 网关限流及登录授权
 
 #### 1 OpenResty 为什么能做网关?
 
@@ -356,17 +356,109 @@ API 网关意味着你要把 API 网关放到你的微服务的最前端，并�
 
 OpenResty 有一个非常重要的因素是，对于每一个请求，Openresty 会把请求分为不同阶段，从而可以让第三方模块通过挂载行为来实现不同阶段的自定义行为。而这样的机制能够让我们非常方便的设计 api 网关。
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-nginx/img/openresty-1.jpg?raw=true)
 
+Nginx 本身在处理一个用户请求时，会按照不同的阶段进行处理，总共会分为 11 个阶段。而 openresty 的执行指令，就是在这 11 个步骤中挂载 lua 执行脚本实现扩展，我们分别看看每个指令的作用。
 
+**init_by_lua：**当 Nginx master 进程加载 nginx 配置文件时会运行这段 lua 脚本，一般用来注册全局变量或者预加载 lua 模块。
 
+**init_woker_by_lua：**每个 Nginx worker 进程启动时会执行的 lua 脚本，可以用来做 健康检查。
 
+**set_by_lua：**设置一个变量
 
+**rewrite_by_lua：**在 rewrite 阶段执行，为每个请求执行指定的 lua 脚本 
 
+**access_by_lua：**为每个请求在访问阶段调用 lua 脚本
 
+**content_by_lua：**前面演示过，通过 lua 脚本生成 content 输出给 http 响应 
 
+**balancer_by_lua：**实现动态负载均衡，如果不是走content_by_lua，则走 proxy_pass，再通过 upstream 进行转发
 
+**header_filter_by_lua：**通过 lua 来设置 headers 或者 cookie 
 
+**body_filter_by_lua：**对响应数据进行过滤 
 
+**log_by_lua：**在 log 阶段执行的脚本，一般用来做数据统计，将请求数据传输到后端进行分析 
+
+#### 2 灰度发布的实现
+
+1. 文件件目录， /data/program/openresty/gray [conf、logs、lua] 
+2. 编写 Nginx 的配置文件 nginx.conf 
+
+~~~nginx
+worker_processes 1;    
+error_log  logs/error.log;
+events{
+      worker_connections 1024;
+} 
+http{
+	lua_package_path "$prefix/lualib/?.lua;;"; 
+    lua_package_cpath "$prefix/lualib/?.so;;"; 
+    upstream prod {
+        server 192.168.11.156:8080;
+    }
+    upstream pre {
+        server 192.168.11.156:8081;
+	} 
+    server {
+        listen 80;
+        server_name localhost;
+        location /api {	
+            content_by_lua_file lua/gray.lua; 
+        }
+        location @prod {
+            proxy_pass http://prod;
+        }
+        location @pre {
+            proxy_pass http://pre;
+        }
+	} 
+    server {
+        listen 8080;
+        location / {
+            content_by_lua_block {
+                ngx.say("I'm prod env");
+            }
+        } 
+    }
+    server {
+        listen 8081;
+        location / {
+            content_by_lua_block {
+                ngx.say("I'm pre env");
+            }
+        } 
+    }
+}
+~~~
+
+3. 编写 gray.lua 文件 
+
+~~~lua
+local redis=require "resty.redis"; 
+local red=redis:new(); 
+red:set_timeout(1000);
+local ok,err=red:connect("192.168.11.156",6379);
+if not ok then
+	ngx.say("failed to connect redis",err); 
+	return;
+end 
+local_ip=ngx.var.remote_addr; 
+local ip_lists=red:get("gray");
+if string.find(ip_lists,local_ip) == nil then 
+    ngx.exec("@prod");
+else
+    ngx.exec("@pre");
+end
+local ok,err=red:close();
+~~~
+
+4. 启动
+   1.  执行命令启动 nginx: [./nginx -p /data/program/openresty/gray] 
+   2. 启动 redis，并设置 set gray 192.168.11.160
+   3. 通过浏览器运行: http://192.168.11.160/api 查看运行结果 
+
+修改 redis gray 的值， 将客户端的 ip 存储到 redis 中 set gray 1. 再次运行结果， 即可看到访问结果已经发生了变化。
 
 
 
