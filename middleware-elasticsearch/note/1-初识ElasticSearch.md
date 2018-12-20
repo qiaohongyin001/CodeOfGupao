@@ -1,5 +1,28 @@
 ## 初识 ElasticSearch
 
+ELK，无需代码侵入，无需编码，需要你的系统在设计的时候有日志
+
+Solr：实时性不高
+ElasticSearch：实时性更高的索引引擎
+
+Java非常重要的搜索引擎鼻祖 Lucene
+Lucene  Java第一代搜索引擎的核心，Java搜索引擎解决方案最先发起者
+
+- Lucene 的工作原理
+
+1. Lucene 是一个 JAVA 搜索类库，它本身并不是一个完整的解决方案，需要额外的开发工作。
+2. Document文档存储、文本搜索。
+3. Index索引，聚合检索。
+4. Analyzer分词器，如IKAnalyzer、word分词、Ansj、Stanford等
+5. 大数据搜索引擎解决方案原理
+6. NoSQL的兴起（Redis、MongoDB、Memecache）
+
+
+
+solr 和 ES 在 Lucene 基础上二次开发的框架
+
+
+
 ### 一 版本选择及分布式环境搭建
 
 ### 1 版本问题
@@ -215,7 +238,7 @@ npm run start
 
 #### 1 Lucene 工作原理
 
-![](lucene-1)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/lucene-1.jpg?raw=true)
 
 处理文本的最高效做法就是：正则匹配。
 
@@ -257,15 +280,15 @@ api 基本格式：http://<ip>:<port>/<索引>/<类型>/<文档 ID>
 
 ##### 1.1 创建非结构化的索引
 
-![](es-1)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/es-1.jpg?raw=true)
 
 ##### 1.2 创建结构化的索引，输入 book/novel/_mappings
 
-![](es-2)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/es-2.jpg?raw=true)
 
 ##### 1.3 可以在 Postman 中选择 PUT 方法，输入 localhost:9200/people，然后在 raw 中编辑一下 json 信息
 
-![](es-3)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/es-3.jpg?raw=true)
 
 输入的 json 内容如下：
 
