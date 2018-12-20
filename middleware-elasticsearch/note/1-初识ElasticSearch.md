@@ -17,9 +17,9 @@ Lucene  Java第一代搜索引擎的核心，Java搜索引擎解决方案最先�
 5. 大数据搜索引擎解决方案原理
 6. NoSQL的兴起（Redis、MongoDB、Memecache）
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/es-base-1.jpg?raw=true)
 
 
-solr 和 ES 在 Lucene 基础上二次开发的框架
 
 
 
