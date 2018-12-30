@@ -1,5 +1,7 @@
 ## 初识 ElasticSearch
 
+**官方网站：https://www.elastic.co/cn/products**
+
 ELK，无需代码侵入，无需编码，需要你的系统在设计的时候有日志
 
 Solr：实时性不高
@@ -13,15 +15,21 @@ Lucene  Java第一代搜索引擎的核心，Java搜索引擎解决方案最先�
 1. Lucene 是一个 JAVA 搜索类库，它本身并不是一个完整的解决方案，需要额外的开发工作。
 2. Document文档存储、文本搜索。
 3. Index索引，聚合检索。
-4. Analyzer分词器，如IKAnalyzer、word分词、Ansj、Stanford等
+4. Analyzer分词器，例如：IKAnalyzer、word分词、Ansj、Stanford等
 5. 大数据搜索引擎解决方案原理
 6. NoSQL的兴起（Redis、MongoDB、Memecache）
 
 ![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/es-base-1.jpg?raw=true)
 
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/es-base-2.png?raw=true)
 
+**处理文本的最高效做法就是：正则匹配**
 
+安装ElasticSearch，jdk版本要大于1.8
+HTTP 默认 9200  提供可视化数据接口
+TCP  默认 9300  后台API操作的访问接口
 
+ES 实现分布式，不需要依赖第三方
 
 ### 一 版本选择及分布式环境搭建
 
