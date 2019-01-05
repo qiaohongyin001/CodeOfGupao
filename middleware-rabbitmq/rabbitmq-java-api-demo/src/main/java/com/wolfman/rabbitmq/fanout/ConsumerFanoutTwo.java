@@ -1,36 +1,32 @@
-package com.wolfman.rabbitmq;
+package com.wolfman.rabbitmq.fanout;
 
 import com.rabbitmq.client.*;
+import com.wolfman.rabbitmq.ConnectionUtils;
 
 import java.io.IOException;
 import java.util.concurrent.TimeoutException;
 
-public class ConsumerTwo {
+public class ConsumerFanoutTwo {
 
-  private final static String QUEUE_NAME = "origin_queue_topic";
 
-  public static void main(String[] args) throws IOException, TimeoutException {
-    ConnectionFactory factory = new ConnectionFactory();
-    //连接ip
-    factory.setHost("39.107.31.208");
-    //连接端口
-    factory.setPort(5672);
-    //虚拟机
-    factory.setVirtualHost("/");
-    //用户
-    factory.setUsername("guest");
-    factory.setPassword("guest");
+  private final static String EXCHANGE_NAME = "test_exchange_fanout";
 
+  public static void main(String[] args) throws IOException, TimeoutException, InterruptedException {
     //建立连接
-    Connection conn = factory.newConnection();
+    Connection conn = ConnectionUtils.getConnection();
     //创建消息通道
     Channel channel = conn.createChannel();
 
-    String msg = "Hello world, Rabbit MQ";
+    channel.exchangeDeclare(EXCHANGE_NAME, "fanout");
+
+    //声明默认的队列
+    String queue = channel.queueDeclare().getQueue();
+    //将队列与交换机绑定，最后一个参数为routingKey,与发送者指定的一样""
+    channel.queueBind(queue, EXCHANGE_NAME, "");
+
 
     // 声明队列
     // String queue, boolean durable, boolean exclusive, boolean autoDelete,Map<String, Object> arguments
-    channel.queueDeclare(QUEUE_NAME,false,false,false,null);
     System.out.println(" Waiting for message....");
 
     // 创建消费者
@@ -44,7 +40,8 @@ public class ConsumerTwo {
     };
     // 开始获取消息
     // String queue, boolean autoAck, Consumer callback
-    channel.basicConsume(QUEUE_NAME, true, consumer);
+    channel.basicConsume(queue, true, consumer);
+
   }
 
 

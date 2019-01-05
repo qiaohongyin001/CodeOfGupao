@@ -1,4 +1,4 @@
-package com.wolfman.rabbitmq.topic;
+package com.wolfman.rabbitmq.fanout;
 
 import com.rabbitmq.client.*;
 import com.wolfman.rabbitmq.ConnectionUtils;
@@ -6,23 +6,23 @@ import com.wolfman.rabbitmq.ConnectionUtils;
 import java.io.IOException;
 import java.util.concurrent.TimeoutException;
 
-public class ConsumerTopic {
+public class ConsumerFanout {
 
-  private final static String QUEUE_NAME = "test_queue_topic_work";
 
-  private final static String EXCHANGE_NAME = "test_exchange_topic";
+  private final static String EXCHANGE_NAME = "test_exchange_fanout";
 
   public static void main(String[] args) throws IOException, TimeoutException, InterruptedException {
     //建立连接
     Connection conn = ConnectionUtils.getConnection();
     //创建消息通道
     Channel channel = conn.createChannel();
-    // 声明队列
-    channel.queueDeclare(QUEUE_NAME, false, false, false, null);
-    // 绑定队列到交换机
-    channel.queueBind(QUEUE_NAME, EXCHANGE_NAME, "key.#");
-    // 同一时刻服务器只会发一条消息给消费者
-    channel.basicQos(1);
+
+    channel.exchangeDeclare(EXCHANGE_NAME, "fanout");
+
+    //声明默认的队列
+    String queue = channel.queueDeclare().getQueue();
+    //将队列与交换机绑定，最后一个参数为routingKey,与发送者指定的一样""
+    channel.queueBind(queue, EXCHANGE_NAME, "");
 
 
     // 声明队列
@@ -40,7 +40,7 @@ public class ConsumerTopic {
     };
     // 开始获取消息
     // String queue, boolean autoAck, Consumer callback
-    channel.basicConsume(QUEUE_NAME, true, consumer);
+    channel.basicConsume(queue, true, consumer);
 
   }
 
