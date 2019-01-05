@@ -37,7 +37,7 @@ Logstash 是开源的服务器端数据处理管道，能够同时从多个来�
 
 Input（数据采集）→ Filter（数据解析/转换）→ Output（数据输出）
 
-![](1)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/logstash-1.jpg?raw=true)
 
 #### 2 必须明白的概念
 
@@ -101,17 +101,17 @@ Logstash → ElasticSearch → Kibana
 
 这种结构因为需要在各个服务器上部署 Logstash，而它比较消耗CPU 和内存资源，所以比较适合计算资源比较丰富的服务器，否则容易造成服务器性能下降，甚至可能导致无法正常工作，这是不可忍受的。 所以!我们需要一个资源消耗低，效率还不错的日志采集工具——Filebeat介绍。
 
-![](elk-1)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/elk-1.jpg?raw=true)
 
-![](elk-2)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/elk-2.jpg?raw=true)
 
 最后从Kibana上看可以发现：日志有延时，缺失
 
 如果解决这个问题？提升采集效率才是王道
 
-![](elk-3)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/elk-3.jpg?raw=true)
 
-![](elk-4)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/elk-4.jpg?raw=true)
 
 数据吞吐量持续增加怎么办?
 
@@ -120,7 +120,7 @@ Logstash → ElasticSearch → Kibana
 - Filebeat支持异步化
 - 引入消息队列机制 如:Kafka 
 
-![](elk-5)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-elasticsearch/img/elk-5.jpg?raw=true)
 
 
 

@@ -16,6 +16,7 @@
         <module>middleware-nginx</module>
         <module>middleware-kafka</module>
         <module>middleware-elasticsearch</module>
+        <module>middleware-rabbitmq</module>
     </modules>
     <packaging>pom</packaging>
 
