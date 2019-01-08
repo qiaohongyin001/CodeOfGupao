@@ -288,7 +288,7 @@ channel.queueDeclare("TEST_TTL_QUEUE", false, false, false, argss);
 - 消息过期
 - 队列达到最大长度(先入队的消息会被发送到DLX)
 
-![](5)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-rabbitmq/img/rabbitmq-5.jpg?raw=true)
 
 可以设置一个死信队列(Dead Letter Queue)与DLX绑定，即可以存储Dead Letter，消费者可以监听这个队列取
 走消息。
@@ -338,7 +338,7 @@ RabbitMQ实现RPC的原理：服务端处理消息后，把响应消息发送到
 
 其中的问题：Client收到消息后，怎么知道应答消息是回复哪一条消息的？所以必须有一个唯一ID来关联，就是 correlationId。 
 
-![](6)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-rabbitmq/img/rabbitmq-6.jpg?raw=true)
 
 #### 6 服务端流控(Flow Control)
 
@@ -398,7 +398,7 @@ rabbitmqctl set_permissions -p / admin ".*" ".*" ".*"
 
 2、src/main/resouces目录，创建rabbitMQ.xml
 
-![](7)
+![](https://github.com/wolfJava/wolfman-middleware/blob/master/middleware-rabbitmq/img/rabbitmq-7.jpg?raw=true)
 
 3、配置applicationContext.xml 
 

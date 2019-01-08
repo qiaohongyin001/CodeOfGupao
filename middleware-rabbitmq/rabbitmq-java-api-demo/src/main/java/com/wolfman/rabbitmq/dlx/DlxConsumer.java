@@ -1,4 +1,4 @@
-package com.wolfman.rabbitmq.direct;
+package com.wolfman.rabbitmq.dlx;
 
 import com.rabbitmq.client.*;
 import com.wolfman.rabbitmq.ConnectionUtils;
@@ -6,7 +6,7 @@ import com.wolfman.rabbitmq.ConnectionUtils;
 import java.io.IOException;
 import java.util.concurrent.TimeoutException;
 
-public class ConsumerDirect {
+public class DlxConsumer {
 
   private final static String QUEUE_NAME = "comuser_first_queue";
 
@@ -19,13 +19,13 @@ public class ConsumerDirect {
 
     // 声明交换机
     // String exchange, String type, boolean durable, boolean autoDelete, Map<String, Object> arguments
-    channel.exchangeDeclare("simple_exchange","direct",false, false, null);
+    channel.exchangeDeclare("dlx_exchange_kawayi","topic",false, false, null);
 
     // 声明队列
-    channel.queueDeclare(QUEUE_NAME, false, false, false, null);
+    channel.queueDeclare("dlx_queue_kawayi_two", false, false, false, null);
 
     // 绑定队列和交换机
-    channel.queueBind(QUEUE_NAME,"simple_exchange","simple.first");
+    channel.queueBind("dlx_queue_kawayi_two","dlx_exchange_kawayi","#");
 
     // String queue, boolean durable, boolean exclusive, boolean autoDelete,Map<String, Object> arguments
     System.out.println(" Waiting for message....");
@@ -41,7 +41,7 @@ public class ConsumerDirect {
     };
     // 开始获取消息
     // String queue, boolean autoAck, Consumer callback
-    channel.basicConsume(QUEUE_NAME, true, consumer);
+    channel.basicConsume("dlx_queue_kawayi_two", true, consumer);
   }
 
 

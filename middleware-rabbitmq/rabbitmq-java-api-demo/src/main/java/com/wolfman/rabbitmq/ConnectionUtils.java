@@ -4,6 +4,7 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 
 import java.io.IOException;
+import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 
 public class ConnectionUtils {
@@ -30,7 +31,10 @@ public class ConnectionUtils {
     return null;
   }
 
+  public static void main(String[] args) {
+    System.out.println(UUID.randomUUID().toString().replace("-",""));
 
+  }
 
 
 }

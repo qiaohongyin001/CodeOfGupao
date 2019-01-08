@@ -15,6 +15,7 @@
     <description>middleware rabbitmq</description>
     <modules>
         <module>rabbitmq-java-api-demo</module>
+        <module>rabbitmq-springboot-consumer</module>
     </modules>
 
     <properties>

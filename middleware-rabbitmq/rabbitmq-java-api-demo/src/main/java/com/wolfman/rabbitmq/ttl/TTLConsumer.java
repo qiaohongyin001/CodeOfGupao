@@ -1,14 +1,14 @@
-package com.wolfman.rabbitmq.direct;
+package com.wolfman.rabbitmq.ttl;
 
 import com.rabbitmq.client.*;
 import com.wolfman.rabbitmq.ConnectionUtils;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
-public class ConsumerDirect {
-
-  private final static String QUEUE_NAME = "comuser_first_queue";
+public class TTLConsumer {
 
   public static void main(String[] args) throws IOException, TimeoutException {
     //建立连接
@@ -21,11 +21,15 @@ public class ConsumerDirect {
     // String exchange, String type, boolean durable, boolean autoDelete, Map<String, Object> arguments
     channel.exchangeDeclare("simple_exchange","direct",false, false, null);
 
+    // 通过队列属性设置消息过期时间
+    Map<String, Object> argss = new HashMap<String, Object>();
+    argss.put("x-message-ttl",6000);
+
     // 声明队列
-    channel.queueDeclare(QUEUE_NAME, false, false, false, null);
+    channel.queueDeclare("ttl_queue", false, false, false, argss);
 
     // 绑定队列和交换机
-    channel.queueBind(QUEUE_NAME,"simple_exchange","simple.first");
+    channel.queueBind("ttl_queue","simple_exchange","ttl.first");
 
     // String queue, boolean durable, boolean exclusive, boolean autoDelete,Map<String, Object> arguments
     System.out.println(" Waiting for message....");
@@ -41,7 +45,7 @@ public class ConsumerDirect {
     };
     // 开始获取消息
     // String queue, boolean autoAck, Consumer callback
-    channel.basicConsume(QUEUE_NAME, true, consumer);
+    channel.basicConsume("ttl_queue", true, consumer);
   }
 
 
