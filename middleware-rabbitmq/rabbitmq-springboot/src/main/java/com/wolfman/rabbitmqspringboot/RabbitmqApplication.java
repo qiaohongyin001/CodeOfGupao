@@ -1,13 +1,13 @@
-package com.wolfman.rabbitmqspringbootproducer;
+package com.wolfman.rabbitmqspringboot;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class RabbitmqSpringbootProducerApplication {
+public class RabbitmqApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(RabbitmqSpringbootProducerApplication.class, args);
+		SpringApplication.run(RabbitmqApplication.class, args);
 	}
 
 }

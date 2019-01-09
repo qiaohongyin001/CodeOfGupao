@@ -9,9 +9,9 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.wolfman</groupId>
-	<artifactId>rabbitmq-springboot-producer</artifactId>
+	<artifactId>rabbitmq-springboot</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>rabbitmq-springboot-producer</name>
+	<name>rabbitmq-springboot</name>
 	<description>Demo project for Spring Boot</description>
 
 	<properties>
@@ -43,4 +43,3 @@
 	</build>
 
 </project>
-
