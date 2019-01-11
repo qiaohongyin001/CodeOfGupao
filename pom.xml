@@ -17,6 +17,7 @@
         <module>middleware-kafka</module>
         <module>middleware-elasticsearch</module>
         <module>middleware-rabbitmq</module>
+        <module>middleware-theory</module>
     </modules>
     <packaging>pom</packaging>
 
